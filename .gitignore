@@ -1,0 +1,15 @@
+# build output
+/out/
+
+# research material: engine source snapshot and game-specific notes.
+# NOT part of the MIT-licensed project - never redistributed, never linked in.
+/research/
+/astral-ascent-re/
+
+# editor / OS noise
+*.user
+*.suo
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

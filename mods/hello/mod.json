@@ -1,0 +1,10 @@
+{
+  "id": "hello",
+  "name": "aamod hello sample",
+  "version": "0.1.0",
+  "author": "aamod",
+  "entry": "hello.dll",
+  "enabled": true,
+  "priority": 10,
+  "description": "M0 sample mod: logs the API surface and self-tests the inline hook engine."
+}
