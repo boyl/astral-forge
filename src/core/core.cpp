@@ -27,6 +27,7 @@
 #include "mods.h"
 #include "hook.h"
 #include "anchor.h"
+#include "present.h"
 
 #define AAMOD_VERSION_STR "0.1.0-m1"
 
@@ -42,8 +43,9 @@ std::string    g_game_dir_utf8;
 Ini            g_config;
 std::vector<ModInfo> g_mods;
 volatile LONG  g_bootstrap_done = 0;
+volatile LONG  g_attach_lock = 0;
 HANDLE         g_thread = NULL;
-bool           g_finalized = false;
+volatile LONG  g_finalized = 0;
 
 // ---------- path helpers ----------
 std::wstring dir_of_module(HMODULE m)
@@ -173,6 +175,16 @@ int api_anchor_find(void* module, const char* literal, void** code, size_t* size
     return 1;
 }
 
+int api_frame_subscribe(AAModFrameFn cb, void* user)
+{
+    return present_subscribe((FrameCallback)cb, user) ? 1 : 0;
+}
+
+int api_frame_unsubscribe(AAModFrameFn cb, void* user)
+{
+    return present_unsubscribe((FrameCallback)cb, user) ? 1 : 0;
+}
+
 // One API struct per mod (mod_dir differs); everything else is shared.
 AAModAPI* make_api(const std::string& mod_dir)
 {
@@ -196,6 +208,8 @@ AAModAPI* make_api(const std::string& mod_dir)
     api->asset_register  = api_asset_register;
     api->event_subscribe = api_event_subscribe;
     api->anchor_find     = api_anchor_find;
+    api->frame_subscribe   = api_frame_subscribe;
+    api->frame_unsubscribe = api_frame_unsubscribe;
     return api;
 }
 
@@ -367,9 +381,8 @@ DWORD WINAPI bootstrap_thread(LPVOID)
 
 void finalize()
 {
-    if (g_finalized)
+    if (InterlockedCompareExchange(&g_finalized, 1, 0) != 0)
         return;
-    g_finalized = true;
     AAMOD_INFO("aamod core shutting down (%zu mods)", g_mods.size());
     unload_mods(g_mods);
     log_close();
@@ -379,9 +392,18 @@ void finalize()
 
 extern "C" __declspec(dllexport) void AAMOD_AttachCore(HMODULE hself)
 {
-    g_core_module = hself;
-    if (g_thread)
+    if (hself)
+        g_core_module = hself;
+
+    // Several shims can be loaded at once (winmm + version + d3d11 all live in
+    // the game directory) and each of them calls this from its DllMain, on its
+    // own thread. Bootstrap must still run exactly once, so claim the slot
+    // atomically before creating the worker.
+    if (InterlockedCompareExchange(&g_attach_lock, 1, 0) != 0) {
+        AAMOD_DEBUG("AAMOD_AttachCore: already attached");
         return;
+    }
+
     g_thread = CreateThread(NULL, 0, bootstrap_thread, NULL, 0, NULL);
     if (!g_thread)
         bootstrap_thread(NULL);   // last resort: run inline
@@ -411,6 +433,36 @@ extern "C" __declspec(dllexport) int AAMOD_ResolveAnchor(void* module,
                                                          size_t* size)
 {
     return api_anchor_find(module, literal, code, size);
+}
+
+/* Called by the d3d11 shim right after the game (or ANGLE) created its D3D11
+ * device, and by host tests. Installs the swap-chain-creation detour. */
+extern "C" __declspec(dllexport) int AAMOD_OnD3D11Device(void* device)
+{
+    return present_attach_device(device) ? 1 : 0;
+}
+
+/* Directly hook an existing swap chain (the factory detour calls the same
+ * function). Exported so a test can hook a chain it created itself. */
+extern "C" __declspec(dllexport) int AAMOD_OnSwapChain(void* swap_chain)
+{
+    return present_attach_swapchain(swap_chain) ? 1 : 0;
+}
+
+extern "C" __declspec(dllexport) uint64_t AAMOD_PresentFrameCount(void)
+{
+    return present_frame_count();
+}
+
+/* bit 1: an IDXGIFactory is hooked, bit 2: an IDXGISwapChain is hooked. */
+extern "C" __declspec(dllexport) uint32_t AAMOD_PresentHookState(void)
+{
+    return present_hook_state();
+}
+
+extern "C" __declspec(dllexport) void AAMOD_DetachPresent(void)
+{
+    present_detach_all();
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)

@@ -170,6 +170,7 @@ def write_shim(name, hooked=None, quiet=False):
     # ---- table + resolver -------------------------------------------------
     tbl = ["// " + banner.replace("\n", "// ").rstrip("/ "),
            "#include <windows.h>",
+           "#include <string.h>",
            "",
            "#define AAMOD_STUB_COUNT %d" % n,
            "",
@@ -206,6 +207,24 @@ def write_shim(name, hooked=None, quiet=False):
             "            ++n;",
             "    return n;",
             "}",
+            "",
+            "// Redirect one proxied export to a local implementation and hand back the",
+            "// address it used to point at, so the override can chain to the real DLL.",
+            "// The assembly stubs read the table on every call, so this takes effect",
+            "// immediately and reverts by putting the old pointer back.",
+            "extern \"C\" void* aamod_shim_override(const char* name, void* fn)",
+            "{",
+            "    if (!name || !fn)",
+            "        return NULL;",
+            "    for (unsigned i = 0; i < AAMOD_STUB_COUNT; ++i) {",
+            "        if (strcmp(name, kAAModStubNames[i]) == 0) {",
+            "            void* previous = g_aamod_stub_table[i];",
+            "            g_aamod_stub_table[i] = fn;",
+            "            return previous;",
+            "        }",
+            "    }",
+            "    return NULL;",
+            "}",
             ""]
     with open(os.path.join(d, "%s_table.cpp" % name), "w", newline="\r\n") as fp:
         fp.write("\n".join(tbl) + "\n")
@@ -214,8 +233,16 @@ def write_shim(name, hooked=None, quiet=False):
     cfg = ["// %s" % banner.replace("\n", "\n// ").rstrip("/ "),
            "#define AAMOD_SHIM_NAME    \"%s\"" % name,
            "#define AAMOD_SHIM_HOOKED  L\"%s.dll\"" % hooked,
-           "#define AAMOD_SHIM_EXPORTS  %d" % n,
-           ""]
+           "#define AAMOD_SHIM_EXPORTS  %d" % n]
+    # A shim may carry target-specific interception code; the generic body then
+    # compiles the matching hooks in. Keep this list in sync with build.ps1.
+    intercepts = {"d3d11": "src\\shim\\d3d11\\d3d11_intercept.cpp"}
+    if name in intercepts:
+        cfg += ["",
+                "// this shim also intercepts the entry points below (see %s)" % intercepts[name],
+                "#define AAMOD_SHIM_INTERCEPTS 1"]
+    cfg += [""]
+    cfg += [""]
     with open(os.path.join(d, "%s_config.h" % name), "w", newline="\r\n") as fp:
         fp.write("\n".join(cfg) + "\n")
 

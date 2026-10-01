@@ -101,7 +101,7 @@ hook point:
 D3D9/GL siblings. v1388 presents through D3D11/DXGI, so the present hook must be
 taken at the **vtable level** (`IDXGISwapChain::Present` / the device's context),
 not by string anchor. `platform_begin_draw()` (`:934`) is the second choice and
-has the same caveat.
+has the same caveat. This is implemented — see section 5.
 
 Main loop, for reference: `GameManager::update()` (`base\run.cpp:596-770`) →
 `update_frame()` (`:207-267`, the single event tick `frame->update();` at
@@ -182,7 +182,67 @@ The same resolution is available inside the game: `AAModAPI::anchor_find`
 (`src/core/anchor.cpp`) runs this algorithm in-process, so mods never hardcode
 an rva — they name a message and get the function back.
 
-## 5. Known unknowns
+## 5. Present hook: implementation notes (M1)
+
+Section 3 predicted the present hook has to be taken at the DXGI/D3D11 level
+because v1388 no longer contains `"Failed present: "`. That is what `src/core/present.cpp`
+plus `src/shim/d3d11/d3d11_intercept.cpp` now implement, without DXGI headers and
+without importing `dxgi.lib`/`d3d11.lib` — every call is made through raw vtable
+slot indexes on `void**`, so nothing depends on an SDK version:
+
+| Interface | Method | slot |
+| --- | --- | --- |
+| `IUnknown` | `QueryInterface` / `AddRef` / `Release` | 0 / 1 / 2 |
+| `IUnknown` | `GetParent` | 6 |
+| `IDXGIDevice` | `GetAdapter` | 7 |
+| `ID3D11Device` | `GetImmediateContext` | 40 |
+| `IDXGIFactory` | `CreateSwapChain` | 10 |
+| `IDXGIFactory2` | `CreateSwapChainForHwnd` / `ForComposition` | 15 / 24 |
+| `IDXGISwapChain` | `GetDevice` / `Present` / `GetDesc` / `ResizeBuffers` / `Present1` | 7 / 8 / 12 / 13 / 22 |
+
+Chain of custody: the `d3d11` proxy intercepts `D3D11CreateDevice` (slot 21) and
+`D3D11CreateDeviceAndSwapChain` (slot 22), forwards to the real
+`d3d11Hooked.dll`, and on success hands the device to the core
+(`AAMOD_OnD3D11Device`). The core QIs `IDXGIDevice`, calls `GetAdapter`, takes
+the adapter's `GetParent(IDXGIFactory)`, and patches *that object's* vtable. Any
+swap chain it creates is patched the same way (`AAMOD_OnSwapChain`). Both the
+executable and ANGLE's `libGLESv2` import `d3d11.dll` by base name, so both land
+on the proxy.
+
+Implementation decisions worth keeping:
+
+* **Per-object vtable clone, not an in-place patch.** `clone_vtable()` heap-copies
+  the vtable, the clone replaces the object's first qword, and the original slots
+  stay untouched in the copy so detach restores the pointer. The copy length is
+  clamped by `VirtualQuery` to the end of the vtable's memory region
+  (`kMaxVtableSlots = 128`), so a wide copy can never read past a mapped page.
+* **`AAModFrameInfo` is always the public struct.** `present.h` typedefs
+  `AAModFrameInfo`/`AAModFrameFn` instead of mirroring them, and `dispatch_frame`
+  writes `size`/`reserved0` first. Any mod can therefore validate
+  `info->size == sizeof(AAModFrameInfo)` before reading fields.
+* **Never hand-mirror COM structs.** The first version of this code declared its
+  own `DXGI_SWAP_CHAIN_DESC`/`DXGI_MODE_DESC` and got the size wrong (it omitted
+  `DXGI_MODE_DESC::Scaling`: 64 bytes instead of 72), so `GetDesc` wrote 8 bytes
+  past a stack buffer and the process died with `0xC0000409`
+  (`__fastfail`/`STATUS_STACK_BUFFER_OVERRUN`). `read_backbuffer_size()` now
+  passes a 256-byte `alignas(8)` scratch buffer and `memcpy`s `BufferDesc.Width`
+  and `Height` out of it, so no engine struct has to be modelled at all.
+* **Failures are contained.** A detour that cannot patch a vtable returns the
+  real HRESULT and logs; a mod callback that throws is caught with
+  `__try/__except`; `AAMOD_DetachPresent()` removes every hook and stops
+  dispatch.
+
+Verified offline (`build.ps1 -Test`): `host.exe` creates a real D3D11 device
+(hardware or WARP) and a real swap chain, `present hook state` goes 1 (device) →
+3 (device + chain), three `Present` calls deliver `hello: present frame 1/2/3 64x64`,
+and after `AAMOD_DetachPresent()` the counters freeze at 3 with state 0. **Not yet
+verified inside the game** (needs the game directory to be written to): the real
+swap chain is created by Chowdren's `platform_d3d11.cpp` through the same
+`D3D11CreateDevice` import, but its feature level, buffer count, `DXGI_SWAP_EFFECT`
+and any second swap chain/DXGI 1.2 path (`CreateSwapChainForHwnd`) remain untested,
+as does the cost of a callback in a real frame.
+
+## 6. Known unknowns
 
 * The `get_file_hash` gperf algorithm (mmfparser is missing from the snapshot).
 * Whether v1388 defines `CHOWDREN_USE_DYNAMIC_NUMBER`, which decides if globals

@@ -5,3 +5,7 @@
 #define AAMOD_SHIM_HOOKED  L"d3d11Hooked.dll"
 #define AAMOD_SHIM_EXPORTS  51
 
+// this shim also intercepts the entry points below (see src\shim\d3d11\d3d11_intercept.cpp)
+#define AAMOD_SHIM_INTERCEPTS 1
+
+

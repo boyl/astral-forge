@@ -11,15 +11,36 @@
  */
 #include <windows.h>
 #include <mmsystem.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #include <stdio.h>
 #include <string.h>
 
 #pragma comment(lib, "winmm.lib")
+#pragma comment(lib, "d3d11.lib")
 
 typedef void (*WaitForCoreFn)(unsigned int);
 typedef unsigned int (*CoreReadyFn)(void);
 typedef const char* (*VersionFn)(void);
 typedef int (*ResolveAnchorFn)(void* module, const char* literal, void** code, size_t* size);
+typedef unsigned int (*HookStateFn)(void);
+typedef unsigned long long (*FrameCountFn)(void);
+typedef void (*DetachFn)(void);
+
+/* Returns a hidden window for the swap chain, or NULL. */
+static HWND host_make_window()
+{
+    const wchar_t* cls = L"aamod_host_window";
+    WNDCLASSEXW wc;
+    ZeroMemory(&wc, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = cls;
+    RegisterClassExW(&wc);
+    return CreateWindowExW(0, cls, L"aamod host", WS_OVERLAPPEDWINDOW,
+                           0, 0, 64, 64, NULL, NULL, wc.hInstance, NULL);
+}
 
 /* Ground truth for the anchor resolver: this function prints a message nobody
  * else in the image carries, so resolving that literal must land back here.
@@ -33,6 +54,7 @@ __declspec(noinline) static int host_anchor_probe(int x)
 
 int main(int argc, char** argv)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);   /* keep the log when a later step crashes */
     printf("host: winmm import test\n");
 
     /* 1. forwarded calls must reach real winmm and return sane values */
@@ -116,6 +138,132 @@ int main(int argc, char** argv)
             fail = 1;
         } else {
             printf("host: anchor negative      = not found (correct)\n");
+        }
+    }
+
+    /* 5. present hook, offline. host.exe imports d3d11.dll statically, exactly
+     *    like the game does, so D3D11CreateDevice resolves to our proxy in this
+     *    directory; the proxy hands the device to the core, the core hooks the
+     *    IDXGIFactory, our CreateSwapChain detour hooks the chain, and every
+     *    Present dispatches the frame callbacks. */
+    HookStateFn hook_state = (HookStateFn)(void*)GetProcAddress(core, "AAMOD_PresentHookState");
+    FrameCountFn frame_count = (FrameCountFn)(void*)GetProcAddress(core, "AAMOD_PresentFrameCount");
+    DetachFn detach = (DetachFn)(void*)GetProcAddress(core, "AAMOD_DetachPresent");
+    if (!hook_state || !frame_count || !detach) {
+        printf("host: FAIL core has no present hook entry points\n");
+        fail = 1;
+    } else {
+        wchar_t d3d_path[MAX_PATH];
+        HMODULE d3d = GetModuleHandleW(L"d3d11.dll");
+        d3d_path[0] = 0;
+        if (d3d)
+            GetModuleFileNameW(d3d, d3d_path, MAX_PATH);
+        printf("host: d3d11 module         = %ls\n", d3d_path[0] ? d3d_path : L"(not loaded)");
+
+        D3D_FEATURE_LEVEL want = D3D_FEATURE_LEVEL_11_0;
+        D3D_FEATURE_LEVEL got = (D3D_FEATURE_LEVEL)0;
+        ID3D11Device* device = NULL;
+        ID3D11DeviceContext* context = NULL;
+        HRESULT hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, &want, 1,
+                                       D3D11_SDK_VERSION, &device, &got, &context);
+        if (FAILED(hr))
+            hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0, &want, 1,
+                                   D3D11_SDK_VERSION, &device, &got, &context);
+        printf("host: D3D11CreateDevice    = 0x%08lx (feature level 0x%04x)\n",
+               (unsigned long)hr, (unsigned)got);
+        if (FAILED(hr)) {
+            printf("host: FAIL no D3D11 device (hardware and WARP both failed)\n");
+            fail = 1;
+        } else {
+            unsigned int state = hook_state();
+            printf("host: present hook state   = %u after device creation\n", state);
+            if (!(state & 1u)) {
+                printf("host: FAIL device creation did not hook an IDXGIFactory\n");
+                fail = 1;
+            }
+
+            IDXGIDevice* dxgi_device = NULL;
+            IDXGIAdapter* adapter = NULL;
+            IDXGIFactory* factory = NULL;
+            HRESULT qhr = device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi_device);
+            printf("host: IDXGIDevice          = 0x%08lx, %p\n", (unsigned long)qhr, (void*)dxgi_device);
+            if (dxgi_device) {
+                qhr = dxgi_device->GetAdapter(&adapter);
+                printf("host: GetAdapter           = 0x%08lx, %p\n", (unsigned long)qhr, (void*)adapter);
+            }
+            if (adapter) {
+                qhr = adapter->GetParent(__uuidof(IDXGIFactory), (void**)&factory);
+                printf("host: GetParent(factory)   = 0x%08lx, %p\n", (unsigned long)qhr, (void*)factory);
+            }
+
+            HWND window = host_make_window();
+            printf("host: window               = %p\n", (void*)window);
+            IDXGISwapChain* chain = NULL;
+            if (factory && window) {
+                DXGI_SWAP_CHAIN_DESC scd;
+                ZeroMemory(&scd, sizeof(scd));
+                scd.BufferCount = 2;
+                scd.BufferDesc.Width = 64;
+                scd.BufferDesc.Height = 64;
+                scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                scd.OutputWindow = window;
+                scd.SampleDesc.Count = 1;
+                scd.Windowed = TRUE;
+                scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+                printf("host: calling factory->CreateSwapChain\n");
+                hr = factory->CreateSwapChain(device, &scd, &chain);
+                printf("host: CreateSwapChain      = 0x%08lx, chain %p\n", (unsigned long)hr, (void*)chain);
+            }
+
+            if (!chain) {
+                printf("host: FAIL no swap chain to present\n");
+                fail = 1;
+            } else {
+                state = hook_state();
+                printf("host: present hook state   = %u after chain creation\n", state);
+                if (!(state & 2u)) {
+                    printf("host: FAIL CreateSwapChain did not hook the chain\n");
+                    fail = 1;
+                }
+                unsigned long long before = frame_count();
+                for (int i = 0; i < 3; ++i) {
+                    hr = chain->Present(0, 0);
+                    if (FAILED(hr))
+                        break;
+                }
+                unsigned long long after = frame_count();
+                printf("host: present              0x%08lx, frames %llu -> %llu\n",
+                       (unsigned long)hr, before, after);
+                if (after - before != 3) {
+                    printf("host: FAIL expected 3 presented frames, saw %llu\n", after - before);
+                    fail = 1;
+                }
+                /* after detaching, Present must go straight to DXGI again */
+                detach();
+                unsigned long long frozen = frame_count();
+                hr = chain->Present(0, 0);
+                printf("host: after detach         frames %llu -> %llu, state %u\n",
+                       frozen, frame_count(), hook_state());
+                if (frame_count() != frozen || hook_state() != 0) {
+                    printf("host: FAIL the present hook survived AAMOD_DetachPresent\n");
+                    fail = 1;
+                }
+                chain->Release();
+            }
+
+            if (factory)
+                factory->Release();
+            if (adapter)
+                adapter->Release();
+            if (dxgi_device)
+                dxgi_device->Release();
+            if (context)
+                context->Release();
+            if (device)
+                device->Release();
+            if (window)
+                DestroyWindow(window);
         }
     }
 

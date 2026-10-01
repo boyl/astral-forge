@@ -85,11 +85,17 @@ $lines = @(
 
 foreach ($shim in $Shims) {
     $sdir = Join-Path $root "src\shim\$shim"
+    # Target-specific interception sources (keep in sync with gen_shim_def.py).
+    $shim_extra = @{ 'd3d11' = 'src\shim\d3d11\d3d11_intercept.cpp' }
+    $extra = ''
+    if ($shim_extra.ContainsKey($shim)) {
+        $extra = ' "' + (Join-Path $root $shim_extra[$shim]) + '"'
+    }
     $lines += @(
         ('echo === shim {0}.dll (proxy, {1} stubs) ===' -f $shim, $shim),
         ('ml64 /nologo /c /Fo "{0}\shim\{1}_stubs.obj" "{2}\{1}_stubs.asm"' -f $obj, $shim, $sdir),
         'if errorlevel 1 exit /b 1',
-        ('cl {0} /D AAMOD_SHIM_CONFIG_H=\"{1}_config.h\" /I"{2}" /LD /Fe:"{3}\{1}.dll" /Fo:"{4}\shim\\" /Fd:"{4}\shim_{1}.pdb" "{5}\src\shim\shim_common.cpp" "{2}\{1}_table.cpp" "{4}\shim\{1}_stubs.obj" /link /DEF:"{2}\{1}.def" /LIBPATH:"{3}" kernel32.lib' -f $common, $shim, $sdir, $out, $obj, $root),
+        ('cl {0} /D AAMOD_SHIM_CONFIG_H=\"{1}_config.h\" /I"{2}" /LD /Fe:"{3}\{1}.dll" /Fo:"{4}\shim\\" /Fd:"{4}\shim_{1}.pdb" "{5}\src\shim\shim_common.cpp" "{2}\{1}_table.cpp"{6} "{4}\shim\{1}_stubs.obj" /link /DEF:"{2}\{1}.def" /LIBPATH:"{3}" kernel32.lib' -f $common, $shim, $sdir, $out, $obj, $root, $extra),
         'if errorlevel 1 exit /b 1'
     )
 }
@@ -127,6 +133,7 @@ foreach ($d in @($testDir, (Join-Path $testDir 'aamod'), (Join-Path $testDir 'aa
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 Copy-Item (Join-Path $out 'winmm.dll')      $testDir -Force
+Copy-Item (Join-Path $out 'd3d11.dll')      $testDir -Force
 Copy-Item (Join-Path $out 'aamod_core.dll') $testDir -Force
 Copy-Item (Join-Path $out 'host.exe')       $testDir -Force
 Copy-Item (Join-Path $out 'hello.dll')      $modDir  -Force
@@ -135,6 +142,10 @@ Copy-Item (Join-Path $root 'mods\hello\mod.json') $modDir -Force
 # the real winmm, renamed: this is what the shim's jump table points at
 $realWinmm = Join-Path $env:SystemRoot 'System32\winmm.dll'
 Copy-Item $realWinmm (Join-Path $testDir 'winmmHooked.dll') -Force
+# same for d3d11: the host imports d3d11.dll, so the proxy and the real DLL
+# (renamed) must both be here for the present-hook test
+$realD3d11 = Join-Path $env:SystemRoot 'System32\d3d11.dll'
+Copy-Item $realD3d11 (Join-Path $testDir 'd3d11Hooked.dll') -Force
 
 $cfg = @'
 ; aamod test configuration
@@ -168,6 +179,8 @@ if (-not (Test-Path $log)) {
         @{ p = 'hello: greeting=hello from config.ini'; n = 'config read through the API' },
         @{ p = 'hello: hook self-test 3/3 OK';           n = 'inline hook install/call/remove works on 3 prologues' },
         @{ p = 'hello: anchor -> [0-9A-Fa-f]{8,} \+\d+ bytes'; n = 'mod resolved an engine anchor through the API' },
+        @{ p = 'hello: frame_subscribe = ok';           n = 'mod subscribed to present frames' },
+        @{ p = 'hello: present frame 1 [1-9]\d*[xX][1-9]\d*'; n = 'mod got a frame callback through the API' },
         @{ p = 'mods\s+:\s+1 loaded';                   n = '1 mod loaded' },
         @{ p = 'aamod core ready';                      n = 'core reached ready state' }
     )
@@ -183,7 +196,10 @@ if (-not (Test-Path $log)) {
 $hostText = ($hostOut | Out-String)
 $expectedOut = @(
     @{ p = 'host: anchor probe\s+=\s+[0-9A-F]+ \+[0-9]+, probe at [0-9A-F]+ -> inside'; n = 'anchor resolver found the probe function' },
-    @{ p = 'host: anchor negative\s+=\s+not found';                                       n = 'anchor resolver rejected an absent literal' }
+    @{ p = 'host: anchor negative\s+=\s+not found';                                       n = 'anchor resolver rejected an absent literal' },
+    @{ p = 'host: present hook state\s+=\s+3 after chain creation';                       n = 'factory and swap chain both hooked' },
+    @{ p = 'host: present\s+0x0+, frames 0 -> 3';                                        n = 'three Present calls dispatched three frames' },
+    @{ p = 'host: after detach\s+frames 3 -> 3, state 0';                                n = 'AAMOD_DetachPresent restored the vtable' }
 )
 foreach ($e in $expectedOut) {
     if ($hostText -notmatch $e.p) { $fails += "host output is missing: $($e.n)  (pattern: $($e.p))" }

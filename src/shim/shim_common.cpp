@@ -25,8 +25,17 @@ extern "C" void     aamod_shim_init_table(HMODULE real);
 extern "C" unsigned aamod_shim_stub_count(void);
 extern "C" unsigned aamod_shim_unresolved_count(void);
 
+/* A shim may carry target-specific interception (see d3d11_intercept.cpp).
+ * Such a shim defines AAMOD_SHIM_INTERCEPTS in its config header and links the
+ * extra source file; the generic body only knows these two entry points. */
+#ifdef AAMOD_SHIM_INTERCEPTS
+extern "C" void aamod_shim_intercept_init(void);
+#endif
+
 static HMODULE g_self = NULL;
 static HMODULE g_real = NULL;
+static HMODULE g_core = NULL;
+static SRWLOCK g_core_lock = SRWLOCK_INIT;
 
 static void shim_log(const wchar_t* fmt, ...)
 {
@@ -89,28 +98,52 @@ static DWORD WINAPI boot_thread(LPVOID)
     return 0;
 }
 
+/* Load + attach aamod_core.dll. Idempotent and safe to call from any thread:
+ * the background thread started by DllMain uses it, and so does a
+ * target-specific intercept that needs the core *now* (e.g. the d3d11 shim
+ * handing a freshly created device to the present hook). */
+static HMODULE load_core()
+{
+    AcquireSRWLockExclusive(&g_core_lock);
+    if (!g_core) {
+        wchar_t dir[MAX_PATH * 2];
+        self_dir(dir, MAX_PATH * 2);
+        if (!dir[0]) {
+            ReleaseSRWLockExclusive(&g_core_lock);
+            return NULL;
+        }
+
+        wchar_t core_path[MAX_PATH * 2];
+        _snwprintf_s(core_path, _TRUNCATE, L"%saamod_core.dll", dir);
+
+        HMODULE core = LoadLibraryW(core_path);
+        if (!core) {
+            shim_log(L"aamod[%hs]: could not load %s (error %lu); forwarding only\n",
+                     AAMOD_SHIM_NAME, core_path, GetLastError());
+        } else {
+            g_core = core;
+            typedef void (*AttachFn)(HMODULE);
+            AttachFn attach = (AttachFn)(void*)GetProcAddress(core, "AAMOD_AttachCore");
+            if (attach)
+                attach(g_self);
+            else
+                shim_log(L"aamod[%hs]: %s has no AAMOD_AttachCore\n", AAMOD_SHIM_NAME, core_path);
+        }
+    }
+    HMODULE result = g_core;
+    ReleaseSRWLockExclusive(&g_core_lock);
+    return result;
+}
+
 static void load_core_async()
 {
-    wchar_t dir[MAX_PATH * 2];
-    self_dir(dir, MAX_PATH * 2);
-    if (!dir[0])
-        return;
+    load_core();
+}
 
-    wchar_t core_path[MAX_PATH * 2];
-    _snwprintf_s(core_path, _TRUNCATE, L"%saamod_core.dll", dir);
-
-    HMODULE core = LoadLibraryW(core_path);
-    if (!core) {
-        shim_log(L"aamod[%hs]: could not load %s (error %lu); forwarding only\n",
-                 AAMOD_SHIM_NAME, core_path, GetLastError());
-        return;
-    }
-    typedef void (*AttachFn)(HMODULE);
-    AttachFn attach = (AttachFn)(void*)GetProcAddress(core, "AAMOD_AttachCore");
-    if (attach)
-        attach(g_self);
-    else
-        shim_log(L"aamod[%hs]: %s has no AAMOD_AttachCore\n", AAMOD_SHIM_NAME, core_path);
+/* Used by target-specific intercepts that must reach the core right away. */
+extern "C" HMODULE aamod_shim_ensure_core(void)
+{
+    return load_core();
 }
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID)
@@ -121,6 +154,11 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID)
 
         g_real = load_real_dll();
         aamod_shim_init_table(g_real);
+#ifdef AAMOD_SHIM_INTERCEPTS
+        /* Needs the table filled: an intercept replaces a stub target and keeps
+         * the previous value as the "real function" to chain to. */
+        aamod_shim_intercept_init();
+#endif
 
         unsigned unresolved = aamod_shim_unresolved_count();
         if (unresolved)

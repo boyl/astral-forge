@@ -83,6 +83,31 @@ static void report(const char* name, bool ok, const char* detail)
         AAMOD_LOGE(g_api, "hello: hook self-test %s: FAILED (%s)", name, detail);
 }
 
+/* ---- M1: frame callbacks -------------------------------------------------
+ * The core calls this on the render thread, before the frame is presented.
+ * Keep it short and never block: it is the same thread the game renders on. */
+static volatile LONG g_frame_hits = 0;
+
+static void on_frame(const AAModFrameInfo* info, void* user)
+{
+    (void)user;
+    if (!info)
+        return;
+    LONG n = InterlockedIncrement(&g_frame_hits);
+    if (!g_api)
+        return;
+    /* Runtime ABI check: if the loader's idea of this struct differs from ours,
+     * every field read below is at the wrong offset. Catch it loudly. */
+    if (info->size != sizeof(AAModFrameInfo)) {
+        AAMOD_LOGE(g_api, "hello: frame info size %u, expected %u",
+                   (unsigned)info->size, (unsigned)sizeof(AAModFrameInfo));
+        return;
+    }
+    if (n <= 3)
+        AAMOD_LOGI(g_api, "hello: present frame %llu %ux%u",
+                   (unsigned long long)info->frame_index, info->width, info->height);
+}
+
 static void run_hook_selftest(void)
 {
     int ok = 0;
@@ -194,6 +219,14 @@ AAMOD_EXPORT uint32_t AAMOD_Init(const AAModAPI* api, uint32_t api_size)
     }
 
     run_hook_selftest();
+
+    /* M1: ask for a callback on every presented frame (the test host presents
+     * three of them after the core reports ready). */
+    if (api->frame_subscribe)
+        AAMOD_LOGI(api, "hello: frame_subscribe = %s",
+                   api->frame_subscribe(on_frame, NULL) ? "ok" : "rejected");
+    else
+        AAMOD_LOGW(api, "hello: this loader has no frame_subscribe");
 
     AAMOD_LOGI(api, "hello: init complete");
     return AAMOD_OK;

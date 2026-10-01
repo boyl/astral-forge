@@ -82,6 +82,37 @@ typedef uint32_t (*AAModEventSubscribeFn)(const char* event_name, void* handler,
  */
 typedef int (*AAModAnchorFindFn)(void* module, const char* literal, void** code, size_t* size);
 
+/* ------- subsystem: frames (defined in M1) -------
+ * The core hooks the D3D11 present path (the game imports D3D11CreateDevice
+ * from d3d11.dll, which the shim proxies), so a mod can run code once per
+ * rendered frame - the natural place to draw an overlay or to advance
+ * per-frame game logic.
+ *
+ * Callbacks run on the render thread, *before* the frame is presented, so
+ * drawing into the back buffer is still possible. Keep them short: blocking
+ * here stalls the whole game. Never call AAModAPI functions that unload mods.
+ */
+typedef struct AAModFrameInfo {
+    uint32_t size;           /* sizeof(AAModFrameInfo) */
+    uint32_t reserved0;
+    uint64_t frame_index;    /* 1-based counter of presented frames */
+    void*    swap_chain;     /* IDXGISwapChain*  (unowned, valid during the call) */
+    void*    device;         /* ID3D11Device*    (unowned) */
+    void*    context;        /* ID3D11DeviceContext* (unowned) */
+    uint32_t width;          /* back buffer width  in pixels, 0 if unknown */
+    uint32_t height;         /* back buffer height in pixels, 0 if unknown */
+    uint32_t sync_interval;  /* Present() argument 1 */
+    uint32_t flags;          /* Present() argument 2 */
+} AAModFrameInfo;
+
+typedef void (*AAModFrameFn)(const AAModFrameInfo* info, void* user);
+
+/* Subscribe/unsubscribe a frame callback. Returns 1 on success. A callback may
+ * be registered from AAMOD_Init; frames start arriving as soon as the game
+ * creates its swap chain. */
+typedef int (*AAModFrameSubscribeFn)(AAModFrameFn cb, void* user);
+typedef int (*AAModFrameUnsubscribeFn)(AAModFrameFn cb, void* user);
+
 /* ------- subsystem: memory helpers ------- */
 typedef void*  (*AAModAllocFn)(size_t size);
 typedef void   (*AAModFreeFn)(void* ptr);
@@ -110,6 +141,9 @@ typedef struct AAModAPI {
     AAModEventSubscribeFn event_subscribe;  /* M2 */
     /* 7. engine anchors (M1) - appended, never reordered */
     AAModAnchorFindFn     anchor_find;
+    /* 8. frames (M1) - appended, never reordered */
+    AAModFrameSubscribeFn   frame_subscribe;
+    AAModFrameUnsubscribeFn frame_unsubscribe;
 } AAModAPI;
 
 /* Logging helper baked into the header so mods need no extra lib */
