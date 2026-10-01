@@ -66,6 +66,22 @@ typedef void (*AAModAssetRegisterFn)(uint32_t asset_index,
 /* ------- subsystem: events (defined in M2, reserved here) ------- */
 typedef uint32_t (*AAModEventSubscribeFn)(const char* event_name, void* handler, void* user);
 
+/* ------- subsystem: engine anchors (defined in M1) -------
+ * Find a function inside a loaded module by a string literal that the function
+ * references. The literal is matched byte-exactly against the mapped image and
+ * the reference site is resolved through the module's .pdata table, so the same
+ * call keeps working across game updates as long as the message text survives.
+ *
+ *   module   NULL for the host .exe, or an HMODULE for any loaded DLL
+ *   literal  e.g. "Could not load image "   (trailing space matters)
+ *   code     receives the function entry point (never inside the function)
+ *   size     receives the function length in bytes, or 0 if unknown
+ * returns 1 on success, 0 when the literal or a reference to it is not found.
+ *
+ * Anchors are cached per module, so repeated lookups are cheap.
+ */
+typedef int (*AAModAnchorFindFn)(void* module, const char* literal, void** code, size_t* size);
+
 /* ------- subsystem: memory helpers ------- */
 typedef void*  (*AAModAllocFn)(size_t size);
 typedef void   (*AAModFreeFn)(void* ptr);
@@ -92,6 +108,8 @@ typedef struct AAModAPI {
     /* 6. reserved / later milestones */
     AAModAssetRegisterFn  asset_register;   /* M4 */
     AAModEventSubscribeFn event_subscribe;  /* M2 */
+    /* 7. engine anchors (M1) - appended, never reordered */
+    AAModAnchorFindFn     anchor_find;
 } AAModAPI;
 
 /* Logging helper baked into the header so mods need no extra lib */

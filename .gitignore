@@ -13,3 +13,7 @@
 .vscode/
 Thumbs.db
 desktop.ini
+
+# python bytecode from the tools/
+__pycache__/
+*.pyc

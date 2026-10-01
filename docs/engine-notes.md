@@ -94,10 +94,14 @@ hook point:
   `GameManager::draw()` — after `Frame::draw` (`:354`), `draw_fade()` (`:355`)
   and `Render::set_offset(0,0)` (`:359`);
 * it is where `screen_fbo.unbind()` (`:983`) has already restored the default
-  render target and `Render::set_view` was applied (`:986`);
-* it carries the stable anchor string `"Failed present: "` (`:1029`).
+  render target and `Render::set_view` was applied (`:986`).
 
-`platform_begin_draw()` (`:934`) is the second choice.
+**Caveat (verified):** the snapshot's anchor string for this function,
+`"Failed present: "`, **does not exist in v1388** — neither do `platform_swap_buffers`'s
+D3D9/GL siblings. v1388 presents through D3D11/DXGI, so the present hook must be
+taken at the **vtable level** (`IDXGISwapChain::Present` / the device's context),
+not by string anchor. `platform_begin_draw()` (`:934`) is the second choice and
+has the same caveat.
 
 Main loop, for reference: `GameManager::update()` (`base\run.cpp:596-770`) →
 `update_frame()` (`:207-267`, the single event tick `frame->update();` at
@@ -124,19 +128,59 @@ that tracks instances must key on `id`, never on the pointer.
 ## 4. Finding those functions in the shipped binary
 
 The snapshot is 2016 code; the shipped binary is v1388, so addresses must be
-recovered. The method used successfully during recon, and the one M1 will
-formalise, is **anchor string → xref → `.pdata` function**:
+recovered. Do not trust the snapshot's strings blindly: of 5,202 literals mined
+from `research/cmdtool`, only **377** still exist in the image, and several
+functions we wanted were renamed or rewritten (`"Failed present"`,
+`"Max color replacements"`, `"Could not replace color"`, `"Renderer: "` are all
+**absent** from v1388).
 
-1. take a string that the source proves is unique to the target function
-   (`"Failed present: "`, `"mods.txt"`, …);
-2. locate it in the executable's mapped image and find the instruction that
-   references it (`lea rdx, [rip+…]`);
-3. map that address to the enclosing function from the exception directory
-   (`.pdata`), which `out/functions.csv` already lists — 154,191 entries with
-   ranges, names and sizes.
+Two routes, both implemented in `tools/find_anchors.py`:
 
-This is how the game's own mod-loader functions above were located, and it does
-not require any debugger or disassembler to be installed.
+* **From the exe's own strings** (preferred for v1388 features):
+
+  ```powershell
+  python tools\find_anchors.py --find "imgui.ini"     # string -> function
+  python tools\find_anchors.py --callers 0x5ce670     # direct callers (E8/E9 rel32)
+  python tools\find_anchors.py --pointers 0x7c010     # vtable/callback slots
+  python tools\find_anchors.py --spec tools\anchors.json
+  ```
+
+  `--callers` sees only direct transfers; `--pointers` covers what it cannot,
+  by scanning `.rdata`/`.data` for the function's absolute address and printing
+  the surrounding qwords — that is how indirect dispatch gets exposed.
+
+* **From the 2016 snapshot's literals** (`--mine`), for the parts of the engine
+  that did survive (stb_*, cnd_*, some `base/` code). Match exactly, and prefer
+  literals that are unique in the image: short generic strings (`"%s: %s"`,
+  `"invalid"`) are referenced by hundreds of functions and are useless anchors.
+
+### Verified anchors for this build (also in `tools/anchors.json`)
+
+| Function | rva | size | anchor literal(s) | how it was found |
+| --- | --- | --- | --- | --- |
+| `platform_create_display` | `0x56790a0` | 396 | `Could not open window: ` | snapshot literal, unique in image |
+| image loader message | `0x617090` | 521 | `Could not load image ` | snapshot literal (unique cluster of 3) |
+| game's own mod loader | `0x5b5910` | 1173 | `./mods.txt`, `workshop` | v1388-only string; Steam Workshop downloader |
+| ImGui setup | `0x5ce670` | 758 | `imgui.ini`, `imgui_log.txt` | v1388-only string; sets `io.IniFilename`/`LogFilename` |
+| OpenGL extension check | `0x578c07b` | — | `OpenGL error` | snapshot literal; entry is a funclet, not 16-byte aligned |
+
+Call chains established by climbing (`--callers`, then `--pointers`):
+
+```
+platform_create_display 0x56790a0  <- 0x615330 (563 B), 0x615a00 (90 B)
+overlay:  0x7c010 (111 B)  <- [.rdata slot 0x5934230]  (no direct caller)
+             -> 0x5cdbb0 (2749 B) -> 0x5ce670 (758 B, ImGui io setup)
+mod loader 0x5b5910 (1173 B)  <- 0x5b9730 (96 B)  <- (no direct caller: vtable/IAT)
+```
+
+The overlay and mod-loader entry points are both reached **indirectly** (table
+slot / IAT), which is itself a finding: hooking them by address is possible via
+`--pointers`, but a frame callback will more reliably come from the D3D11/DXGI
+present path (section 3) or from hooking the direct caller we did find.
+
+The same resolution is available inside the game: `AAModAPI::anchor_find`
+(`src/core/anchor.cpp`) runs this algorithm in-process, so mods never hardcode
+an rva — they name a message and get the function back.
 
 ## 5. Known unknowns
 

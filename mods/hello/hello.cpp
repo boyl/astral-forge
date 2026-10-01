@@ -180,6 +180,19 @@ AAMOD_EXPORT uint32_t AAMOD_Init(const AAModAPI* api, uint32_t api_size)
     if (scratch)
         api->free_(scratch);
 
+    /* M1: resolve an engine function from a message string it prints. The
+     * literal comes from config.ini so this mod stays game-agnostic; in the
+     * offline test host it resolves inside host.exe. */
+    const char* anchor = api->config_str("hello.anchor", "");
+    if (anchor && *anchor) {
+        void*  code = NULL;
+        size_t size = 0;
+        if (api->anchor_find && api->anchor_find(NULL, anchor, &code, &size))
+            AAMOD_LOGI(api, "hello: anchor -> %p +%zu bytes", code, size);
+        else
+            AAMOD_LOGW(api, "hello: anchor \"%s\" did not resolve", anchor);
+    }
+
     run_hook_selftest();
 
     AAMOD_LOGI(api, "hello: init complete");

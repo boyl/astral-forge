@@ -19,6 +19,17 @@
 typedef void (*WaitForCoreFn)(unsigned int);
 typedef unsigned int (*CoreReadyFn)(void);
 typedef const char* (*VersionFn)(void);
+typedef int (*ResolveAnchorFn)(void* module, const char* literal, void** code, size_t* size);
+
+/* Ground truth for the anchor resolver: this function prints a message nobody
+ * else in the image carries, so resolving that literal must land back here.
+ * Called through a volatile pointer so the optimiser cannot drop it. */
+__declspec(noinline) static int host_anchor_probe(int x)
+{
+    if (x == 12345)
+        printf("host: anchor probe message %d\n", x);
+    return x + 1;
+}
 
 int main(int argc, char** argv)
 {
@@ -70,6 +81,43 @@ int main(int argc, char** argv)
     DWORD attr = GetFileAttributesA(mod_dir);
     printf("host: mod dir (%s)          = %s\n", mod_dir,
            (attr != INVALID_FILE_ATTRIBUTES) ? "present" : "absent");
+
+    /* 4. the runtime anchor resolver must find a function by its message
+     *    string, using this process as the search space */
+    int (*volatile probe_call)(int) = host_anchor_probe;
+    probe_call(0);                                   /* keep the body alive */
+    ResolveAnchorFn resolve = (ResolveAnchorFn)(void*)GetProcAddress(core, "AAMOD_ResolveAnchor");
+    if (!resolve) {
+        printf("host: FAIL aamod_core.dll has no AAMOD_ResolveAnchor\n");
+        fail = 1;
+    } else {
+        void* code = NULL;
+        size_t size = 0;
+        if (resolve(NULL, "host: anchor probe message %d\n", &code, &size)) {
+            uintptr_t begin = (uintptr_t)code;
+            uintptr_t probe = (uintptr_t)&host_anchor_probe;
+            int inside = probe >= begin && probe < begin + size;
+            printf("host: anchor probe         = %p +%zu, probe at %p -> %s\n",
+                   code, size, (void*)probe, inside ? "inside" : "OUTSIDE");
+            if (!inside)
+                fail = 1;
+        } else {
+            printf("host: FAIL anchor probe did not resolve\n");
+            fail = 1;
+        }
+        /* This literal must be absent, so it has to be built at runtime:
+         * anything written in the source would sit in our own .rdata. */
+        char missing[64];
+        sprintf_s(missing, sizeof(missing), "host: absent literal %c%c%c%c%d",
+                  'z', 'q', 'q', 'x', 4711);
+        void* bad = (void*)1;
+        if (resolve(NULL, missing, &bad, NULL)) {
+            printf("host: FAIL negative anchor resolved to %p\n", bad);
+            fail = 1;
+        } else {
+            printf("host: anchor negative      = not found (correct)\n");
+        }
+    }
 
     printf("host: %s\n", fail ? "RESULT=FAIL" : "RESULT=OK");
     return fail;

@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "aamod anchor map for Astral Ascent (Chowdren v1388, build 25330514).",
+    "Each entry names an engine function by string literals that function references.",
+    "Verify with:  python tools/find_anchors.py --spec tools/anchors.json",
+    "The same literals are what mods pass to AAModAPI::anchor_find at runtime;",
+    "`expect` is the RVA this build resolves to, so a mismatch or a MISSING entry",
+    "means the game changed and the anchors need re-mining (see docs/engine-notes.md)."
+  ],
+  "targets": {
+    "platform_create_display": {
+      "anchors": ["Could not open window: "],
+      "source": "research/cmdtool/base/platform_d3d11.cpp (source literal, unique in image)",
+      "expect": "0x56790a0",
+      "notes": "creates the window/context; called from 0x615330 and 0x615a00"
+    },
+    "image_loader_message": {
+      "anchors": ["Could not load image "],
+      "source": "research/cmdtool/base/image.cpp:142",
+      "expect": "0x617090",
+      "notes": "one of three clusters: the plain literal is also a prefix of the longer 'Could not load image \"%s\": %s' message used elsewhere"
+    },
+    "game_mod_loader": {
+      "anchors": ["./mods.txt", "workshop"],
+      "source": "v1388-only strings (not in the 2016 source snapshot)",
+      "expect": "0x5b5910",
+      "notes": "the game's own Steam Workshop downloader; aamod must stay out of its way rather than replace it"
+    },
+    "overlay_imgui_setup": {
+      "anchors": ["imgui.ini", "imgui_log.txt"],
+      "source": "v1388-only strings",
+      "expect": "0x5ce670",
+      "notes": "sets ImGui io.IniFilename/LogFilename; called only from 0x5cdbb0, which is called only from 0x7c010 (itself reached through the .rdata table slot 0x5934230)"
+    }
+  }
+}

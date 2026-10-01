@@ -26,8 +26,9 @@
 #include "ini.h"
 #include "mods.h"
 #include "hook.h"
+#include "anchor.h"
 
-#define AAMOD_VERSION_STR "0.1.0-m0"
+#define AAMOD_VERSION_STR "0.1.0-m1"
 
 using namespace aamod;
 
@@ -160,6 +161,18 @@ uint32_t api_event_subscribe(const char* name, void* handler, void* user)
     return AAMOD_ERR_GENERIC;
 }
 
+int api_anchor_find(void* module, const char* literal, void** code, size_t* size)
+{
+    AnchorHit hit;
+    if (!anchor_resolve((HMODULE)module, literal, &hit))
+        return 0;
+    if (code)
+        *code = hit.code;
+    if (size)
+        *size = hit.size;
+    return 1;
+}
+
 // One API struct per mod (mod_dir differs); everything else is shared.
 AAModAPI* make_api(const std::string& mod_dir)
 {
@@ -182,6 +195,7 @@ AAModAPI* make_api(const std::string& mod_dir)
     api->mod_dir         = s_keep.back()->c_str();
     api->asset_register  = api_asset_register;
     api->event_subscribe = api_event_subscribe;
+    api->anchor_find     = api_anchor_find;
     return api;
 }
 
@@ -387,6 +401,16 @@ extern "C" __declspec(dllexport) uint32_t AAMOD_CoreReady(void)
 extern "C" __declspec(dllexport) const char* AAMOD_Version(void)
 {
     return AAMOD_VERSION_STR;
+}
+
+/* Same as AAModAPI::anchor_find, reachable without a mod (used by host tests
+ * and by the ASI-style entry points). */
+extern "C" __declspec(dllexport) int AAMOD_ResolveAnchor(void* module,
+                                                         const char* literal,
+                                                         void** code,
+                                                         size_t* size)
+{
+    return api_anchor_find(module, literal, code, size);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)

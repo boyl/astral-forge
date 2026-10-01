@@ -140,6 +140,8 @@ $cfg = @'
 ; aamod test configuration
 [hello]
 greeting=hello from config.ini
+; an engine anchor: the literal the resolver must map back to a function
+anchor=host: anchor probe message %d
 '@
 Set-Content -Path (Join-Path $testDir 'aamod\config.ini') -Value $cfg -Encoding utf8
 
@@ -165,6 +167,7 @@ if (-not (Test-Path $log)) {
         @{ p = 'hello: AAMOD_Init';                     n = 'mod init called' },
         @{ p = 'hello: greeting=hello from config.ini'; n = 'config read through the API' },
         @{ p = 'hello: hook self-test 3/3 OK';           n = 'inline hook install/call/remove works on 3 prologues' },
+        @{ p = 'hello: anchor -> [0-9A-Fa-f]{8,} \+\d+ bytes'; n = 'mod resolved an engine anchor through the API' },
         @{ p = 'mods\s+:\s+1 loaded';                   n = '1 mod loaded' },
         @{ p = 'aamod core ready';                      n = 'core reached ready state' }
     )
@@ -175,9 +178,24 @@ if (-not (Test-Path $log)) {
                 (Get-Content $log | Measure-Object).Count)
 }
 
+# host stdout assertions: the anchor resolver must map a message back to the
+# function that prints it, and must refuse a literal that is not in the image.
+$hostText = ($hostOut | Out-String)
+$expectedOut = @(
+    @{ p = 'host: anchor probe\s+=\s+[0-9A-F]+ \+[0-9]+, probe at [0-9A-F]+ -> inside'; n = 'anchor resolver found the probe function' },
+    @{ p = 'host: anchor negative\s+=\s+not found';                                       n = 'anchor resolver rejected an absent literal' }
+)
+foreach ($e in $expectedOut) {
+    if ($hostText -notmatch $e.p) { $fails += "host output is missing: $($e.n)  (pattern: $($e.p))" }
+}
+
 Write-Host '[test] export parity of every shim' -ForegroundColor Cyan
 & $py (Join-Path $root 'tools\gen_shim_def.py') @Shims '--check'
 if ($LASTEXITCODE -ne 0) { $fails += 'export parity check failed' }
+
+Write-Host '[test] anchor tooling selftest (host.exe as ground truth)' -ForegroundColor Cyan
+& $py (Join-Path $root 'tools\find_anchors.py') --selftest
+if ($LASTEXITCODE -ne 0) { $fails += 'anchor tooling selftest failed' }
 
 if ($fails.Count) {
     Write-Host ''

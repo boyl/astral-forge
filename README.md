@@ -18,7 +18,11 @@ ReShade-class hooks work.
 |-----------|----------|-------|
 | M-1 | Recon: injection viability, engine identification, asset format, toolchain | **done** |
 | M0 | Proxy shim + core loader + C ABI + inline hook engine | **done, verified offline** |
-| M1 | Frame/hook API + config + logging polish, first in-game run | next |
+| M1 | Engine anchor resolver (done, verified offline) + frame/hook API, first in-game run | in progress |
+
+M1's offline half is finished: `src/core/anchor.cpp` resolves a function from a
+message string the function prints, and mods reach it through
+`AAModAPI::anchor_find`. The in-game half still needs the game installed into.
 | M2 | Game event & system queries (frame id, object list, global variables) | planned |
 | M3 | Overlay UI (own minimal renderer, ImGui optional backend) | planned |
 | M4 | Asset access/replacement (`Assets.dat` reader, image/sound override) | planned |
@@ -80,9 +84,15 @@ A mod is one DLL exporting `AAMOD_Init`; `AAMOD_Shutdown` is optional.
 
 AAMOD_EXPORT uint32_t AAMOD_Init(const AAModAPI* api, uint32_t api_size) {
     AAMOD_LOGI(api, "my mod up, game dir = %s", api->game_dir);
-    int speed = api->config_int(api, "my_mod", "speed", 3);
-    void* trampoline = NULL;
-    api->hook_install(api, target_address, my_detour, &trampoline);
+    int speed = api->config_int("my_mod.speed", 3);
+
+    /* find an engine function by a message it prints, then hook it */
+    void* target = NULL;
+    size_t size  = 0;
+    if (api->anchor_find(NULL, "Could not load image ", &target, &size)) {
+        void* trampoline = NULL;
+        api->hook_install(target, my_detour, &trampoline);
+    }
     return AAMOD_OK;
 }
 
@@ -111,14 +121,34 @@ is `AAMOD_ABI_VERSION = 1`.
 
 ```
 include/aamod/aamod.h   public C ABI (the only header mods need)
-src/core/               loader: bootstrap, config, logging, mod discovery, hooks
+src/core/               loader: bootstrap, config, logging, mod discovery, hooks,
+                        anchor.cpp (function lookup from message strings)
 src/shim/               shim_common.cpp + per-DLL generated stubs
 tools/                  gen_shim_def.py (export-table driven stub generator)
+tools/find_anchors.py   offline anchor miner (--find/--callers/--pointers/--spec)
+tools/anchors.json      verified engine anchors for the current game build
 mods/hello/             sample mod used by the test harness
 tests/host/             offline test executable
 docs/                   architecture and engine notes
 install.ps1, build.ps1
 ```
+
+## Finding engine functions
+
+The game ships no symbols, but its functions are usually recognisable by the
+messages they print. `tools/find_anchors.py` climbs from a string to the
+function that prints it and onwards:
+
+```powershell
+python tools\find_anchors.py --find "imgui.ini"        # string -> function
+python tools\find_anchors.py --callers 0x5ce670        # who calls it
+python tools\find_anchors.py --pointers 0x7c010        # vtable/callback slots
+python tools\find_anchors.py --spec tools\anchors.json # re-verify known anchors
+```
+
+The same resolution is available to mods at runtime through
+`AAModAPI::anchor_find`, so a mod never hardcodes an address. Verified anchors
+and the call chains discovered so far are in `docs/engine-notes.md`.
 
 ## Notes
 
