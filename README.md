@@ -39,7 +39,29 @@
 
 ## 安装与卸载
 
-需要 PowerShell 7。解压运行包，关闭游戏，在解压目录执行：
+支持两种方式：**手动复制安装**或**PowerShell 自动化脚本安装**。两者使用相同的运行包和默认 winmm 入口；Steam 工坊订阅只负责下载，不会代替这两种安装步骤。
+
+### 方式一：手动复制安装（不运行安装脚本）
+
+关闭游戏，解压运行包。通过 Steam「属性 → 已安装文件 → 浏览」打开包含 `Astral Ascent.exe` 的游戏目录。
+
+| 来源 | 复制到游戏目录后的名称 |
+| --- | --- |
+| 运行包 `out/winmm.dll` | `winmm.dll` |
+| 运行包 `out/aamod_core.dll` | `aamod_core.dll` |
+| 本机 Windows 的 `%WINDIR%\System32\winmm.dll` | **`winmmHooked.dll`** |
+
+第三项必须使用本机 **System32 的 64 位系统 DLL**，复制后重命名；不能用 `SysWOW64` 的 32 位版本。运行包不分发微软系统 DLL。
+
+如果游戏目录已存在上述任一目标文件，先确认来源和原有安装方式，不直接覆盖。脚本安装的旧版本先用脚本卸载；其他 Mod 的同名入口需要先处理兼容。保留 BD 的 `version.dll`，不要把包内 `d3d11.dll` 一并复制进去。
+
+安装自己的插件时，把 DLL、`mod.json` 和所需 `assets` 放到 `aamod/mods/<插件目录>`。默认数据目录的配置和日志会在首次启动时创建；框架安装本身不会启用全部示例。可从 Steam 正常启动游戏，检查 `aamod/logs/aamod.log` 是否记录核心就绪；玩法修改或原生事件仍需显式启用对应开关。
+
+手动安装不会生成脚本的 `aamod/install.json`，因此不能直接使用脚本卸载或覆盖更新。完整目录示意、示例启用、手动卸载和切换方式见 [手动安装说明](docs/手动安装.md)。
+
+### 方式二：PowerShell 自动化脚本安装（推荐）
+
+需要 PowerShell 7。脚本自动复制文件、校验哈希、记录安装清单，并为更新/卸载提供回滚保护。解压运行包，关闭游戏，在解压目录执行：
 
 ```powershell
 ./install.ps1 -GameDir '你的 Astral Ascent 游戏目录' -WhatIf
