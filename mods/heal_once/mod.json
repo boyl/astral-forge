@@ -1,0 +1,10 @@
+{
+  "id": "heal_once",
+  "name": "每个场景一次回血示例（默认关闭）",
+  "version": "0.1.0",
+  "entry": "heal_once.dll",
+  "enabled": false,
+  "api_version": 1,
+  "min_api_size": 184,
+  "required_capabilities": 256
+}

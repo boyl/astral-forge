@@ -1,0 +1,11 @@
+{
+  "id": "template",
+  "name": "开发者最小插件",
+  "version": "0.1.0",
+  "entry": "template.dll",
+  "enabled": true,
+  "priority": 0,
+  "api_version": 1,
+  "min_api_size": 136,
+  "required_capabilities": 0
+}

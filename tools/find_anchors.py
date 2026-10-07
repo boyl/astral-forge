@@ -38,7 +38,7 @@ import re
 import struct
 import sys
 
-DEFAULT_EXE = r"C:\Program Files (x86)\Steam\steamapps\common\Astral Ascent\Astral Ascent.exe"
+DEFAULT_EXE = os.environ.get("AAMOD_GAME_EXE")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 DEFAULT_SRC = os.path.join(ROOT, "research", "cmdtool", "base")
@@ -714,6 +714,8 @@ def main(argv=None):
 
     if args.selftest:
         return cmd_selftest(args)
+    if not args.exe:
+        ap.error("请使用 --exe 指定游戏 EXE，或设置 AAMOD_GAME_EXE。")
     if args.callers:
         return cmd_callers(args)
     if args.pointers:

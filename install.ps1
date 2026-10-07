@@ -1,220 +1,88 @@
-<#
-.SYNOPSIS
-    Installs or removes the aamod loader in the Astral Ascent game directory.
-
-.DESCRIPTION
-    The loader is injected through a proxy DLL (the "shim"). The game imports
-    winmm.dll statically, and the Windows loader searches the application
-    directory before System32, so a winmm.dll next to the game executable is
-    loaded instead of the system one. The shim forwards every export to a
-    renamed copy of the real DLL (<shim>Hooked.dll) and loads aamod_core.dll.
-
-    Nothing is written outside the game directory. A manifest (aamod/install.json)
-    records every file and its hash so -Uninstall can remove exactly what was
-    installed. -WhatIf prints the plan and changes nothing.
-
-.EXAMPLE
-    .\install.ps1 -WhatIf
-    .\install.ps1
-    .\install.ps1 -Shim version -Force
-    .\install.ps1 -Uninstall
-#>
-[CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'Install')]
-param(
-    [Parameter(ParameterSetName = 'Install')]
-    [Parameter(ParameterSetName = 'Uninstall')]
-    [string]$GameDir = '',
-
-    [Parameter(ParameterSetName = 'Install')]
-    [ValidateSet('winmm', 'version', 'd3d11')]
-    [string]$Shim = 'winmm',
-
-    [Parameter(ParameterSetName = 'Install')]
-    [switch]$Force,
-
-    [Parameter(ParameterSetName = 'Uninstall')]
-    [switch]$Uninstall,
-
-    [Parameter(ParameterSetName = 'Uninstall')]
-    [switch]$KeepData
-)
-
-$ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
-$out = Join-Path $root 'out'
-$gameExeName = 'Astral Ascent.exe'
-$manifestName = 'install.json'
-$dataDirName = 'aamod'
-
-function Get-GameDir {
-    if ($GameDir) { return (Resolve-Path -LiteralPath $GameDir).Path }
-
-    # Try the Steam library folders, then a couple of well-known locations.
-    $steam = 'C:\Program Files (x86)\Steam'
-    $candidates = @()
-    $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
-    if (Test-Path $vdf) {
-        foreach ($m in [regex]::Matches((Get-Content -Raw $vdf), '"path"\s+"([^"]+)"')) {
-            $p = $m.Groups[1].Value -replace '\\\\', '\'
-            $candidates += (Join-Path $p 'steamapps\common\Astral Ascent')
-        }
-    }
-    $candidates += (Join-Path $steam 'steamapps\common\Astral Ascent')
-    foreach ($c in $candidates) {
-        if (Test-Path (Join-Path $c $gameExeName)) { return (Resolve-Path -LiteralPath $c).Path }
-    }
-    throw "Could not find '$gameExeName'. Pass -GameDir <path>."
+#requires -Version 7.0
+<# 仅安装清单内文件；拒绝覆盖未知加载器，默认保留插件、配置和日志。 #>
+[CmdletBinding(SupportsShouldProcess=$true)]
+param([string]$GameDir,[ValidateSet('winmm','d3d11')][string]$Shim='winmm',[switch]$Uninstall)
+$ErrorActionPreference='Stop'
+if(-not $GameDir) {
+    $steam=(Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction Stop).SteamPath
+    $GameDir=Join-Path $steam 'steamapps\common\Astral Ascent'
 }
-
-function Assert-GameNotRunning {
-    $proc = Get-Process -Name 'Astral Ascent' -ErrorAction SilentlyContinue
-    if ($proc) { throw "'Astral Ascent' is running (pid $($proc.Id -join ', ')). Close it first." }
-}
-
-function Assert-KnownDllOk([string]$name) {
-    # A DLL listed under KnownDLLs is always resolved from System32 and can
-    # never be proxied.
-    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs'
-    if (Test-Path $key) {
-        $values = (Get-ItemProperty $key).PSObject.Properties |
-            Where-Object { $_.Name -notlike 'PS*' } |
-            Select-Object -ExpandProperty Value
-        if ($values -contains "$name.dll") {
-            throw "$name.dll is a KnownDLL on this system - pick another shim."
+$game=(Resolve-Path -LiteralPath $GameDir).Path
+if(-not (Test-Path -LiteralPath (Join-Path $game 'Astral Ascent.exe'))) {throw '目标不是星界战士目录。'}
+if(Get-Process -Name 'Astral Ascent' -ErrorAction SilentlyContinue) {throw '请先退出游戏。'}
+$data=Join-Path $game 'aamod'
+$manifestPath=Join-Path $data 'install.json'
+$oldManifest=if(Test-Path -LiteralPath $manifestPath){Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json}else{$null}
+$allowed=@('winmm.dll','winmmHooked.dll','d3d11.dll','d3d11Hooked.dll','aamod_core.dll')
+if($oldManifest) {
+    foreach($item in $oldManifest.files){
+        if($item.path -notin $allowed){throw '安装清单包含非框架文件，未执行。'}
+        $target=Join-Path $game $item.path
+        if(Test-Path -LiteralPath $target){
+            if((Get-FileHash -LiteralPath $target).Hash -ne $item.sha256){throw "已安装文件漂移：$($item.path)"}
         }
     }
 }
-
-function Write-Plan([string[]]$lines) {
-    Write-Host ''
-    foreach ($l in $lines) { Write-Host "  $l" }
-    Write-Host ''
-}
-
-# ---------------------------------------------------------------- install
-if (-not $Uninstall) {
-    $game = Get-GameDir
-    Assert-GameNotRunning
-    Assert-KnownDllOk $Shim
-
-    $shimSrc = Join-Path $out "$Shim.dll"
-    $coreSrc = Join-Path $out 'aamod_core.dll'
-    foreach ($f in @($shimSrc, $coreSrc)) {
-        if (-not (Test-Path $f)) { throw "$f is missing - run .\build.ps1 first." }
+if($Uninstall) {
+    if(-not $oldManifest){throw '没有安装清单。'}
+    if(-not $PSCmdlet.ShouldProcess($game,'卸载已核对哈希的框架文件，保留插件和配置')){return}
+    $backup=Join-Path $game ('.install-backups\aamod-uninstall-'+[guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $backup -Force | Out-Null
+    foreach($item in $oldManifest.files){$target=Join-Path $game $item.path;if(Test-Path -LiteralPath $target){Copy-Item -LiteralPath $target -Destination (Join-Path $backup $item.path)}}
+    Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $backup 'install.json')
+    try {
+        foreach($item in $oldManifest.files){$target=Join-Path $game $item.path;if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target}}
+        Remove-Item -LiteralPath $manifestPath
+    } catch {
+        foreach($item in $oldManifest.files){$target=Join-Path $game $item.path;$saved=Join-Path $backup $item.path;if(-not (Test-Path -LiteralPath $target) -and (Test-Path -LiteralPath $saved)){Copy-Item -LiteralPath $saved -Destination $target}}
+        if(-not (Test-Path -LiteralPath $manifestPath)){Copy-Item -LiteralPath (Join-Path $backup 'install.json') -Destination $manifestPath}
+        throw
     }
-
-    $realDll = Join-Path $env:SystemRoot "System32\$Shim.dll"
-    if (-not (Test-Path $realDll)) { throw "$realDll not found." }
-
-    $shimDst = Join-Path $game "$Shim.dll"
-    $hookedDst = Join-Path $game "${Shim}Hooked.dll"
-    $coreDst = Join-Path $game 'aamod_core.dll'
-    $dataDir = Join-Path $game $dataDirName
-    $manifestPath = Join-Path $dataDir $manifestName
-
-    if ((Test-Path $shimDst) -and -not $Force) {
-        throw "$shimDst already exists (another mod loader?). Use -Force to overwrite."
-    }
-
-    $exe = Join-Path $game $gameExeName
-    $exeText = [System.IO.File]::ReadAllBytes($exe)
-    $exeStr = [System.Text.Encoding]::ASCII.GetString($exeText)
-    if ($exeStr -notmatch [regex]::Escape("$Shim.dll")) {
-        Write-Warning "The game executable does not appear to import $Shim.dll; injection will not happen."
-    }
-    $exeText = $null
-
-    Write-Plan @(
-        "game directory : $game",
-        "shim           : $Shim.dll  (proxy, forwards to ${Shim}Hooked.dll)",
-        "files to add   : $Shim.dll, ${Shim}Hooked.dll, aamod_core.dll",
-        "data directory : $dataDir  (config.ini, mods\, logs\)"
-    )
-
-    if (-not $PSCmdlet.ShouldProcess($game, "install aamod ($Shim shim)")) { return }
-
-    New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'mods'),
-        (Join-Path $dataDir 'logs') | Out-Null
-
-    Copy-Item $shimSrc $shimDst -Force
-    Copy-Item $realDll $hookedDst -Force
-    Copy-Item $coreSrc $coreDst -Force
-
-    $cfg = Join-Path $dataDir 'config.ini'
-    if (-not (Test-Path $cfg)) {
-        Set-Content -Path $cfg -Encoding utf8 -Value @'
-; aamod configuration - one [section] per mod is optional but tidy
-[general]
-; extra mod directories, separated by ';'. Defaults:
-;   <game dir>\aamod\mods      (this directory)
-;   %LOCALAPPDATA%\aamod\mods
-; mod_dirs=
-
-[engine]
-; Chowdren environment switches. 1/0, or true/false. Empty = leave untouched.
-;   CHOWDREN_SHOW_DEBUGGER opens the engine debug console (needs a console
-;   attached to the process, so it is only useful when started from a terminal)
-show_debugger=0
-'@
-    }
-
-    $files = @()
-    foreach ($p in @($shimDst, $hookedDst, $coreDst)) {
-        $files += [pscustomobject]@{
-            path   = (Split-Path $p -Leaf)
-            sha256 = (Get-FileHash $p -Algorithm SHA256).Hash
-            bytes  = (Get-Item $p).Length
-        }
-    }
-    $manifest = [pscustomobject]@{
-        aamod       = '0.1.0-m0'
-        installed   = (Get-Date).ToString('s')
-        game_dir    = $game
-        game_exe    = (Get-Item $exe).VersionInfo.FileVersion
-        shim        = $Shim
-        real_dll    = $realDll
-        files       = $files
-    }
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $manifestPath -Encoding utf8
-
-    Write-Host "installed. start the game; the log appears at $dataDir\logs\aamod.log" -ForegroundColor Green
-    Write-Host "uninstall with: .\install.ps1 -Uninstall" -ForegroundColor DarkGray
+    Write-Output '框架已卸载，插件、配置和日志保留。'
     return
 }
-
-# ---------------------------------------------------------------- uninstall
-$game = Get-GameDir
-Assert-GameNotRunning
-$dataDir = Join-Path $game $dataDirName
-$manifestPath = Join-Path $dataDir $manifestName
-if (-not (Test-Path $manifestPath)) { throw "$manifestPath not found - nothing to uninstall." }
-$manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json
-
-$toRemove = @()
-foreach ($f in $manifest.files) {
-    $p = Join-Path $game $f.path
-    if (-not (Test-Path $p)) { continue }
-    $hash = (Get-FileHash $p -Algorithm SHA256).Hash
-    if ($hash -ne $f.sha256) {
-        Write-Warning "$($f.path) changed since installation (modded by hand?); leaving it in place."
-        continue
+if($oldManifest -and $oldManifest.shim -ne $Shim){throw '切换加载入口前，请先卸载原入口。'}
+$out=Join-Path $PSScriptRoot 'out'
+$build=Get-Content -LiteralPath (Join-Path $out 'build.json') -Raw | ConvertFrom-Json
+$sources=@(@{Name="$Shim.dll";Path=(Join-Path $out "$Shim.dll")},
+           @{Name="${Shim}Hooked.dll";Path=(Join-Path $env:SystemRoot "System32\$Shim.dll")},
+           @{Name='aamod_core.dll';Path=(Join-Path $out 'aamod_core.dll')})
+$items=@()
+foreach($source in $sources){
+    $hash=(Get-FileHash -LiteralPath $source.Path).Hash
+    if($source.Name -notlike '*Hooked.dll' -and $build.files.($source.Name) -ne $hash){throw '构建文件与 build.json 不一致，请重新构建。'}
+    $target=Join-Path $game $source.Name
+    $exists=Test-Path -LiteralPath $target
+    if($exists -and (-not $oldManifest -or $source.Name -notin @($oldManifest.files.path))){throw "拒绝覆盖未知文件：$($source.Name)"}
+    $items+=@{Name=$source.Name;Source=$source.Path;Hash=$hash;Existed=$exists;OldHash=if($exists){(Get-FileHash -LiteralPath $target).Hash}else{$null};Written=$false}
+}
+if(-not $PSCmdlet.ShouldProcess($game,"安装 $($build.version)，入口 $Shim，默认关闭渲染挂钩")){return}
+$backup=Join-Path $game ('.install-backups\aamod-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $backup -Force | Out-Null
+foreach($item in $items){if($item.Existed){Copy-Item -LiteralPath (Join-Path $game $item.Name) -Destination (Join-Path $backup $item.Name)}}
+if($oldManifest){Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $backup 'install.json')}
+$items | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $backup 'transaction.json') -Encoding utf8NoBOM
+try {
+    foreach($item in $items){
+        $target=Join-Path $game $item.Name
+        if($item.Existed -and (Get-FileHash -LiteralPath $target).Hash -ne $item.OldHash){throw '目标在备份后改变。'}
+        $item.Written=$true
+        Copy-Item -LiteralPath $item.Source -Destination $target -Force
+        if((Get-FileHash -LiteralPath $target).Hash -ne $item.Hash){throw '安装哈希校验失败。'}
     }
-    $toRemove += $p
+    New-Item -ItemType Directory -Path (Join-Path $data 'mods'),(Join-Path $data 'logs') -Force | Out-Null
+    $files=@($items | ForEach-Object {@{path=$_.Name;sha256=$_.Hash;bytes=(Get-Item -LiteralPath (Join-Path $game $_.Name)).Length}})
+    @{aamod=$build.version;installed=(Get-Date).ToString('s');game_dir=$game;shim=$Shim;files=$files} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+} catch {
+    foreach($item in $items){
+        if(-not $item.Written){continue}
+        $target=Join-Path $game $item.Name
+        if($item.Existed){
+            if(-not (Test-Path -LiteralPath $target) -or (Get-FileHash -LiteralPath $target).Hash -ne $item.OldHash){Copy-Item -LiteralPath (Join-Path $backup $item.Name) -Destination $target -Force}
+        } elseif(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target}
+    }
+    if($oldManifest){Copy-Item -LiteralPath (Join-Path $backup 'install.json') -Destination $manifestPath -Force}
+    elseif(Test-Path -LiteralPath $manifestPath){Remove-Item -LiteralPath $manifestPath}
+    throw
 }
-
-Write-Plan @(
-    "game directory : $game",
-    "installed      : $($manifest.installed)  (shim $($manifest.shim))",
-    "files to remove: $(($toRemove | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')",
-    "data directory : $(if ($KeepData) { 'kept' } else { "removed: $dataDir (mods, logs, install.json)" })"
-)
-
-if (-not $PSCmdlet.ShouldProcess($game, 'uninstall aamod')) { return }
-
-foreach ($p in $toRemove) { Remove-Item $p -Force }
-if ($KeepData) {
-    Remove-Item $manifestPath -Force
-} else {
-    Remove-Item $dataDir -Recurse -Force
-}
-Write-Host 'uninstalled.' -ForegroundColor Green
+Write-Output "已安装并验证 $($build.version)。备份：$backup"

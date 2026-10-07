@@ -1,6 +1,12 @@
 #include "mods.h"
 #include "log.h"
 #include "json_min.h"
+#include "present.h"
+#include "hook.h"
+#include "game_commands.h"
+#include "resources.h"
+#include "native_images.h"
+#include "plugin_data.h"
 
 #include <algorithm>
 #include <stdio.h>
@@ -67,6 +73,12 @@ bool parse_mod_dir(const std::wstring& mod_dir, ModInfo& out)
         AAMOD_WARN("mods: malformed mod.json in %s", wide_to_utf8(mod_dir).c_str());
         return false;
     }
+    std::string contract_error;
+    if (!mod_contract_parse(fields, out.contract, contract_error)) {
+        AAMOD_ERROR("mods: invalid compatibility declaration in %s: %s",
+                    wide_to_utf8(mod_dir).c_str(), contract_error.c_str());
+        return false;
+    }
 
     out.id       = json::get_string(fields, "id");
     out.name     = json::get_string(fields, "name");
@@ -86,7 +98,15 @@ bool parse_mod_dir(const std::wstring& mod_dir, ModInfo& out)
         out.name = out.id;
 
     std::string entry = json::get_string(fields, "entry", "mod.dll");
-    out.entry_path = mod_dir + L"\\" + std::wstring(entry.begin(), entry.end());
+    if (entry.empty() || entry.find_first_of("\\/:") != std::string::npos) {
+        AAMOD_ERROR("mods: '%s' entry must be a DLL filename inside the mod directory", out.id.c_str());
+        return false;
+    }
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, entry.c_str(), (int)entry.size(), NULL, 0);
+    if (!count) return false;
+    std::wstring wide_entry(count, L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, entry.c_str(), (int)entry.size(), &wide_entry[0], count);
+    out.entry_path = mod_dir + L"\\" + wide_entry;
 
     if (!file_exists(out.entry_path)) {
         AAMOD_WARN("mods: '%s' -> entry '%s' not found in %s", out.id.c_str(),
@@ -97,6 +117,15 @@ bool parse_mod_dir(const std::wstring& mod_dir, ModInfo& out)
 }
 
 } // anonymous namespace
+
+static uint32_t invoke_init(AAModInitFn init, const AAModAPI* api)
+{
+    __try { return init(api, api->api_size); }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        AAMOD_ERROR("mods: AAMOD_Init raised exception 0x%08lx", GetExceptionCode());
+        return AAMOD_ERR_GENERIC;
+    }
+}
 
 std::vector<ModInfo> discover_mods(const std::vector<std::wstring>& dirs)
 {
@@ -161,6 +190,14 @@ bool load_one(ModInfo& m, const AAModAPI* api)
     if (m.module)
         return m.initialized;
 
+    std::string contract_error;
+    if (!mod_contract_check(m.contract, api, contract_error)) {
+        AAMOD_ERROR("mods: '%s' incompatible before DLL load: %s (requires ABI %u, size %u, caps %llu)",
+                    m.id.c_str(), contract_error.c_str(), m.contract.abi, m.contract.min_size,
+                    (unsigned long long)m.contract.capabilities);
+        return false;
+    }
+
     HMODULE h = LoadLibraryExW(m.entry_path.c_str(), NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!h) {
         AAMOD_ERROR("mods: LoadLibrary('%s') failed (err %lu)",
@@ -176,12 +213,15 @@ bool load_one(ModInfo& m, const AAModAPI* api)
     m.module = (HINSTANCE)h;
     m.shutdown = (AAModShutdownFn)(void*)GetProcAddress(h, "AAMOD_Shutdown");
 
-    uint32_t rc = init(api, (uint32_t)sizeof(AAModAPI));
+    uint32_t rc = invoke_init(init, api);
     if (rc != AAMOD_OK) {
         AAMOD_ERROR("mods: '%s' AAMOD_Init returned %u, unloading", m.id.c_str(), rc);
-        FreeLibrary(h);
-        m.module = NULL;
-        m.shutdown = NULL;
+        present_unsubscribe_module(h);
+        if (hook::remove_module(h)) {
+            FreeLibrary(h);
+            m.module = NULL;
+            m.shutdown = NULL;
+        } else AAMOD_ERROR("mods: '%s' retained: hook rollback failed", m.id.c_str());
         return false;
     }
     m.initialized = true;
@@ -205,6 +245,9 @@ void unload_mods(std::vector<ModInfo>& mods)
         ModInfo& m = mods[i];
         if (!m.module)
             continue;
+        present_unsubscribe_module((HMODULE)m.module);
+        if (m.owned_api) game_commands_revoke(m.owned_api->command_owner);
+        if (m.owned_api) native_images_revoke(m.owned_api->resource_owner);
         if (m.shutdown) {
             __try {
                 m.shutdown();
@@ -212,8 +255,16 @@ void unload_mods(std::vector<ModInfo>& mods)
                 AAMOD_ERROR("mods: '%s' AAMOD_Shutdown raised an exception", m.id.c_str());
             }
         }
-        FreeLibrary((HMODULE)m.module);
-        m.module = NULL;
+        present_unsubscribe_module((HMODULE)m.module);
+        if (m.owned_api) plugin_data_revoke(m.owned_api->data_owner);
+        if (hook::remove_module((HMODULE)m.module)) {
+            if (m.owned_api) resources_revoke(m.owned_api->resource_owner);
+            FreeLibrary((HMODULE)m.module);
+            m.module = NULL;
+            m.initialized = false;
+            free(m.owned_api);
+            m.owned_api = NULL;
+        } else AAMOD_ERROR("mods: '%s' retained: hook cleanup failed", m.id.c_str());
     }
 }
 

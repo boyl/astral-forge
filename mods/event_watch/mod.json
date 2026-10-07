@@ -1,0 +1,10 @@
+{
+  "id": "event_watch",
+  "name": "状态事件记录示例",
+  "version": "0.1.0",
+  "entry": "event_watch.dll",
+  "enabled": true,
+  "api_version": 1,
+  "min_api_size": 160,
+  "required_capabilities": 128
+}

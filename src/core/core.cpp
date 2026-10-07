@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <vector>
 
 #include "aamod/aamod.h"
@@ -28,8 +29,20 @@
 #include "hook.h"
 #include "anchor.h"
 #include "present.h"
+#include "game_profile.h"
+#include "game_state.h"
+#include "game_commands.h"
+#include "resources.h"
+#include "native_images.h"
+#include "plugin_data.h"
+#include "game_equipment.h"
+#include "game_combat.h"
+#include "content_catalog.h"
+#include "equipment_commands.h"
+#include "gameplay_events.h"
+#include "native_events.h"
 
-#define AAMOD_VERSION_STR "0.1.0-m1"
+#define AAMOD_VERSION_STR "0.1.9-dev"
 
 using namespace aamod;
 
@@ -123,11 +136,12 @@ void api_log(int level, const char* fmt, ...)
 
 const char* api_config_str(const char* key, const char* def)
 {
-    static std::string scratch;
-    if (!key || !g_config.has(key))
-        return def;
-    scratch = g_config.get_str(key);
-    return scratch.c_str();
+    if (!key) return def;
+    const auto& entries = g_config.entries();
+    std::string normalized(key);
+    for (char& c : normalized) c = (char)tolower((unsigned char)c);
+    const auto it = entries.find(normalized);
+    return it == entries.end() ? def : it->second.c_str();
 }
 
 int64_t api_config_int(const char* key, int64_t def)
@@ -139,6 +153,11 @@ int64_t api_config_int(const char* key, int64_t def)
 
 void* api_alloc(size_t size) { return malloc(size); }
 void  api_free(void* p) { free(p); }
+
+uint64_t api_capabilities(void)
+{
+    return (native_events_available() ? AAMOD_CAP_GAMEPLAY_EVENTS : 0) | AAMOD_CAP_HOOKS | AAMOD_CAP_ANCHORS | AAMOD_CAP_FRAMES | AAMOD_CAP_GAME_INFO | AAMOD_CAP_GAME_STATE | AAMOD_CAP_STATE_EVENTS | AAMOD_CAP_PNG_RESOURCES | AAMOD_CAP_PLUGIN_DATA | (content_catalog_available() ? AAMOD_CAP_CONTENT_CATALOG : 0) | (native_images_available() ? AAMOD_CAP_NATIVE_IMAGES : 0) | (game_commands_available() ? AAMOD_CAP_COMMANDS : 0) | (game_commands_available() && content_catalog_available() ? AAMOD_CAP_EQUIPMENT_COMMANDS : 0);
+}
 
 uint32_t api_hook_install(void* target, void* detour, void** trampoline)
 {
@@ -186,12 +205,8 @@ int api_frame_unsubscribe(AAModFrameFn cb, void* user)
 }
 
 // One API struct per mod (mod_dir differs); everything else is shared.
-AAModAPI* make_api(const std::string& mod_dir)
+AAModAPI* make_api(const std::string& mod_dir,const std::string& mod_id)
 {
-    // Keep the mod_dir strings alive for the lifetime of the process.
-    static std::vector<std::string*> s_keep;
-    s_keep.push_back(new std::string(mod_dir));
-
     AAModAPI* api = (AAModAPI*)calloc(1, sizeof(AAModAPI));
     api->api_version     = AAMOD_ABI_VERSION;
     api->api_size        = (uint32_t)sizeof(AAModAPI);
@@ -204,12 +219,39 @@ AAModAPI* make_api(const std::string& mod_dir)
     api->hook_remove     = api_hook_remove;
     api->game_module     = (void*)GetModuleHandleW(NULL);
     api->game_dir        = g_game_dir_utf8.c_str();
-    api->mod_dir         = s_keep.back()->c_str();
+    api->mod_dir         = mod_dir.c_str();
     api->asset_register  = api_asset_register;
     api->event_subscribe = api_event_subscribe;
     api->anchor_find     = api_anchor_find;
     api->frame_subscribe   = api_frame_subscribe;
     api->frame_unsubscribe = api_frame_unsubscribe;
+    api->capabilities = api_capabilities;
+    api->game_info = game_profile_query;
+    api->game_state = game_state_query;
+    api->state_events = game_state_events;
+    api->command_owner = game_commands_owner();
+    api->command_submit = game_commands_submit;
+    api->command_result = game_commands_result;
+    api->resource_owner = resources_owner(mod_dir);
+    api->image_load = resources_image_load;
+    api->image_release = resources_image_release;
+    api->native_image_info = native_image_info;
+    api->image_replace = native_image_replace;
+    api->image_restore = native_image_restore;
+    api->image_replacement_status = native_image_status;
+    api->image_replacement_forget = native_image_forget;
+    api->data_owner = plugin_data_owner(g_data_dir,mod_id);
+    api->data_read = plugin_data_read;
+    api->data_write = plugin_data_write;
+    api->data_delete = plugin_data_delete;
+    api->equipment = game_equipment_query;
+    api->combat_state = game_combat_query;
+    api->content_catalog = content_catalog_query;
+    api->equipment_submit = equipment_submit;
+    api->equipment_result = equipment_result;
+    api->gameplay_events = gameplay_events_query;
+    if (!api->data_owner) AAMOD_WARN("plugin data: namespace unavailable or duplicate id: %s",mod_id.c_str());
+    if (!api->resource_owner) AAMOD_WARN("resources: plugin root unavailable: %s",mod_dir.c_str());
     return api;
 }
 
@@ -301,8 +343,15 @@ DWORD WINAPI bootstrap_thread(LPVOID)
     g_game_dir_utf8 = to_utf8(g_game_dir);
 
     // data dir: prefer <gamedir>\aamod, fall back to %LOCALAPPDATA%\aamod
+    std::wstring override_dir = env_str(L"AAMOD_DATA_DIR");
     std::wstring game_aamod = g_game_dir + L"\\aamod";
-    if (dir_writable(game_aamod))
+    if (!override_dir.empty()) {
+        if (!dir_writable(override_dir)) {
+            OutputDebugStringA("aamod: AAMOD_DATA_DIR is not writable; startup failed\n");
+            return 0;
+        }
+        g_data_dir = override_dir;
+    } else if (dir_writable(game_aamod))
         g_data_dir = game_aamod;
 
     std::wstring local = local_appdata();
@@ -311,7 +360,6 @@ DWORD WINAPI bootstrap_thread(LPVOID)
     if (g_data_dir.empty()) {
         if (local_aamod.empty()) {
             OutputDebugStringA("aamod: no writable data directory, aborting\n");
-            InterlockedExchange(&g_bootstrap_done, 1);
             return 0;
         }
         CreateDirectoryW(local_aamod.c_str(), NULL);
@@ -327,6 +375,11 @@ DWORD WINAPI bootstrap_thread(LPVOID)
     AAMOD_INFO("data dir : %s", to_utf8(g_data_dir).c_str());
     AAMOD_INFO("log file : %s", log_path());
     log_game_version();
+    game_profile_initialize();
+    content_catalog_initialize(g_game_dir);
+    native_images_initialize();
+    game_state_initialize();
+    native_events_initialize();
 
     std::wstring cfg = g_data_dir + L"\\config.ini";
     if (!g_config.load_file(cfg.c_str())) {
@@ -368,8 +421,21 @@ DWORD WINAPI bootstrap_thread(LPVOID)
     for (size_t i = 0; i < g_mods.size(); ++i) {
         if (!g_mods[i].enabled)
             continue;
-        if (load_one(g_mods[i], make_api(g_mods[i].dir)))
+        g_mods[i].owned_api = make_api(g_mods[i].dir,g_mods[i].id);
+        if (load_one(g_mods[i], g_mods[i].owned_api)) {
+            game_commands_activate(g_mods[i].owned_api->command_owner);
+            native_images_activate(g_mods[i].owned_api->resource_owner);
             ++loaded;
+        } else {
+            plugin_data_revoke(g_mods[i].owned_api->data_owner);
+            native_images_revoke(g_mods[i].owned_api->resource_owner);
+            game_commands_revoke(g_mods[i].owned_api->command_owner);
+            if (!g_mods[i].module) {
+                resources_revoke(g_mods[i].owned_api->resource_owner);
+                free(g_mods[i].owned_api);
+                g_mods[i].owned_api = NULL;
+            }
+        }
     }
     AAMOD_INFO("mods     : %zu loaded", loaded);
     AAMOD_INFO("aamod core ready");
@@ -384,7 +450,11 @@ void finalize()
     if (InterlockedCompareExchange(&g_finalized, 1, 0) != 0)
         return;
     AAMOD_INFO("aamod core shutting down (%zu mods)", g_mods.size());
+    present_detach_all();
+    native_events_shutdown();
+    game_state_shutdown();
     unload_mods(g_mods);
+    if(!native_images_shutdown())AAMOD_ERROR("native image: adapter retained because hook removal failed");
     log_close();
 }
 
@@ -406,7 +476,7 @@ extern "C" __declspec(dllexport) void AAMOD_AttachCore(HMODULE hself)
 
     g_thread = CreateThread(NULL, 0, bootstrap_thread, NULL, 0, NULL);
     if (!g_thread)
-        bootstrap_thread(NULL);   // last resort: run inline
+        OutputDebugStringA("aamod: bootstrap thread creation failed\n");
 }
 
 extern "C" __declspec(dllexport) void AAMOD_WaitForCore(uint32_t timeout_ms)
@@ -439,6 +509,9 @@ extern "C" __declspec(dllexport) int AAMOD_ResolveAnchor(void* module,
  * device, and by host tests. Installs the swap-chain-creation detour. */
 extern "C" __declspec(dllexport) int AAMOD_OnD3D11Device(void* device)
 {
+    wchar_t mode[4] = {};
+    if (GetEnvironmentVariableW(L"AAMOD_RENDER", mode, 4) != 1 || mode[0] != L'1')
+        return 0;
     return present_attach_device(device) ? 1 : 0;
 }
 
@@ -446,6 +519,9 @@ extern "C" __declspec(dllexport) int AAMOD_OnD3D11Device(void* device)
  * function). Exported so a test can hook a chain it created itself. */
 extern "C" __declspec(dllexport) int AAMOD_OnSwapChain(void* swap_chain)
 {
+    wchar_t mode[4] = {};
+    if (GetEnvironmentVariableW(L"AAMOD_RENDER", mode, 4) != 1 || mode[0] != L'1')
+        return 0;
     return present_attach_swapchain(swap_chain) ? 1 : 0;
 }
 
@@ -465,13 +541,25 @@ extern "C" __declspec(dllexport) void AAMOD_DetachPresent(void)
     present_detach_all();
 }
 
+/* Caller must stop rendering/gameplay and join its own plugin workers first.
+ * Never invoke from DllMain or a frame callback. No hot reload is supported. */
+extern "C" __declspec(dllexport) void AAMOD_ShutdownCore(void)
+{
+    if (g_thread) WaitForSingleObject(g_thread, INFINITE);
+    finalize();
+    if (g_thread) { CloseHandle(g_thread); g_thread = NULL; }
+    InterlockedExchange(&g_bootstrap_done, 0);
+}
+
+extern "C" __declspec(dllexport) size_t AAMOD_ActiveHookCount(void) { return hook::active(); }
+extern "C" __declspec(dllexport) size_t AAMOD_SubscriberCount(void) { return present_subscriber_count(); }
+extern "C" __declspec(dllexport) size_t AAMOD_ImageCount(void) { return resources_live_images(); }
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         g_core_module = hModule;
         DisableThreadLibraryCalls(hModule);
-    } else if (reason == DLL_PROCESS_DETACH) {
-        finalize();
     }
     return TRUE;
 }

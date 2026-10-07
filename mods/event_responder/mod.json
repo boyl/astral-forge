@@ -1,0 +1,10 @@
+{
+  "id": "aamod.event-responder",
+  "name": "原生事件受控响应示例",
+  "version": "0.1.9-dev",
+  "entry": "event_responder.dll",
+  "enabled": false,
+  "api_version": 1,
+  "min_api_size": 328,
+  "required_capabilities": 16640
+}

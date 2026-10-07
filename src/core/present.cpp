@@ -2,6 +2,7 @@
 #include "present.h"
 
 #include "log.h"
+#include <dxgi1_2.h>
 
 #include <atomic>
 #include <cstring>
@@ -121,13 +122,14 @@ typedef HRESULT (STDMETHODCALLTYPE *PresentFn)(void*, UINT, UINT);
 typedef HRESULT (STDMETHODCALLTYPE *Present1Fn)(void*, UINT, UINT, const void*);
 typedef HRESULT (STDMETHODCALLTYPE *ResizeFn)(void*, UINT, UINT, UINT, UINT, UINT);
 typedef HRESULT (STDMETHODCALLTYPE *CreateChainFn)(void*, void*, void*, void**);
-typedef HRESULT (STDMETHODCALLTYPE *CreateChainForHwndFn)(void*, void*, void*, const void*, void*, void**);
+typedef HRESULT (STDMETHODCALLTYPE *CreateChainForHwndFn)(void*, void*, HWND, const DXGI_SWAP_CHAIN_DESC1*, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, void*, void**);
 typedef HRESULT (STDMETHODCALLTYPE *CreateChainForCompFn)(void*, void*, const void*, void*, void**);
 
 std::mutex g_lock;
 std::vector<HookedFactory*> g_factories;
 std::vector<HookedChain*>   g_chains;
 std::vector<std::pair<FrameCallback, void*>> g_subscribers;
+std::recursive_mutex g_dispatch_lock;
 std::atomic<uint64_t> g_frames(0);
 std::atomic<uint32_t> g_state(0);
 void* g_fallback_present = nullptr;   /* used if a detour cannot identify its chain */
@@ -233,6 +235,7 @@ void call_frame_callback(FrameCallback cb, const FrameInfo* info, void* user)
 
 void dispatch_frame(const HookedChain* chain, uint32_t sync_interval, uint32_t flags)
 {
+    std::lock_guard<std::recursive_mutex> delivery(g_dispatch_lock);
     uint64_t index = g_frames.fetch_add(1) + 1;
     std::vector<Subscriber> subs = subscriber_snapshot();
     if (subs.empty())
@@ -250,8 +253,9 @@ void dispatch_frame(const HookedChain* chain, uint32_t sync_interval, uint32_t f
     info.sync_interval = sync_interval;
     info.flags         = flags;
 
-    AAMOD_TRACE("frame %llu (%ux%u) -> %zu subscriber(s)",
-                (unsigned long long)index, info.width, info.height, subs.size());
+    if (index <= 3)
+        AAMOD_TRACE("frame %llu (%ux%u) -> %zu subscriber(s)",
+                    (unsigned long long)index, info.width, info.height, subs.size());
     for (const Subscriber& sub : subs)
         call_frame_callback(sub.cb, &info, sub.user);
 }
@@ -337,15 +341,16 @@ HRESULT STDMETHODCALLTYPE detour_create_swap_chain(void* self, void* device, voi
     return hr;
 }
 
-HRESULT STDMETHODCALLTYPE detour_create_swap_chain_for_hwnd(void* self, void* device, void* desc,
-                                                            const void* fullscreen, void* restrict_to,
+HRESULT STDMETHODCALLTYPE detour_create_swap_chain_for_hwnd(void* self, void* device, HWND window,
+                                                            const DXGI_SWAP_CHAIN_DESC1* desc,
+                                                            const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fullscreen, void* restrict_to,
                                                             void** out)
 {
     HookedFactory factory;
     if (!get_factory(self, &factory) || !factory.real_create_hwnd)
         return E_FAIL;
     HRESULT hr = reinterpret_cast<CreateChainForHwndFn>(factory.real_create_hwnd)(
-        self, device, desc, fullscreen, restrict_to, out);
+        self, device, window, desc, fullscreen, restrict_to, out);
     if (SUCCEEDED(hr) && out && *out)
         present_attach_swapchain(*out);
     return hr;
@@ -383,7 +388,8 @@ bool attach_factory(void* factory)
         com_release(factory2);
     }
 
-    void** patched = clone_vtable_wide(factory, slots, &slots);
+    size_t copied_slots = 0;
+    void** patched = clone_vtable_wide(factory, slots, &copied_slots);
     if (!patched) {
         AAMOD_ERROR("could not clone the IDXGIFactory vtable");
         return false;
@@ -435,7 +441,8 @@ bool present_attach_swapchain(void* swap_chain)
         com_release(chain1);
     }
 
-    void** patched = clone_vtable_wide(swap_chain, slots, &slots);
+    size_t copied_slots = 0;
+    void** patched = clone_vtable_wide(swap_chain, slots, &copied_slots);
     if (!patched) {
         AAMOD_ERROR("could not clone the IDXGISwapChain vtable");
         return false;
@@ -570,6 +577,7 @@ bool present_subscribe(FrameCallback cb, void* user)
 
 bool present_unsubscribe(FrameCallback cb, void* user)
 {
+    std::lock_guard<std::recursive_mutex> delivery(g_dispatch_lock);
     std::lock_guard<std::mutex> guard(g_lock);
     for (size_t i = 0; i < g_subscribers.size(); ++i) {
         if (g_subscribers[i].first == cb && g_subscribers[i].second == user) {
@@ -580,6 +588,19 @@ bool present_unsubscribe(FrameCallback cb, void* user)
     return false;
 }
 
+void present_unsubscribe_module(HMODULE module)
+{
+    std::lock_guard<std::recursive_mutex> delivery(g_dispatch_lock);
+    std::lock_guard<std::mutex> guard(g_lock);
+    for (auto it = g_subscribers.begin(); it != g_subscribers.end();) {
+        HMODULE owner = NULL;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          (LPCWSTR)it->first, &owner);
+        if (owner == module) it = g_subscribers.erase(it);
+        else ++it;
+    }
+}
+
 uint64_t present_frame_count()
 {
     return g_frames.load();
@@ -588,6 +609,12 @@ uint64_t present_frame_count()
 uint32_t present_hook_state()
 {
     return g_state.load();
+}
+
+size_t present_subscriber_count()
+{
+    std::lock_guard<std::mutex> guard(g_lock);
+    return g_subscribers.size();
 }
 
 bool present_backbuffer_size(void* swap_chain, uint32_t* width, uint32_t* height)

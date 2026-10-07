@@ -17,3 +17,12 @@ desktop.ini
 # python bytecode from the tools/
 __pycache__/
 *.pyc
+
+# local plugin build artefacts
+**/.build/
+*.dll
+*.exe
+*.obj
+*.lib
+*.exp
+*.pdb

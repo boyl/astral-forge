@@ -1,0 +1,10 @@
+{
+  "id": "image_sample",
+  "name": "自有 PNG 资源示例",
+  "version": "0.1.0",
+  "entry": "image_sample.dll",
+  "enabled": true,
+  "api_version": 1,
+  "min_api_size": 208,
+  "required_capabilities": 512
+}

@@ -1,0 +1,10 @@
+{
+  "id": "aamod.diagnostics",
+  "name": "游戏身份诊断",
+  "version": "0.1.3-dev",
+  "entry": "diagnostics.dll",
+  "enabled": true,
+  "api_version": 1,
+  "min_api_size": 144,
+  "required_capabilities": 32
+}

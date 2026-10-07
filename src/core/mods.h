@@ -6,6 +6,7 @@
 #include <windows.h>
 
 #include "aamod/aamod.h"
+#include "mod_contract.h"
 
 namespace aamod {
 
@@ -21,6 +22,8 @@ struct ModInfo {
     HINSTANCE   module;
     AAModShutdownFn shutdown;
     bool        initialized;
+    AAModAPI*   owned_api = NULL;
+    ModContract contract;
 
     ModInfo() : enabled(true), priority(0), module(NULL), shutdown(NULL), initialized(false) {}
 };

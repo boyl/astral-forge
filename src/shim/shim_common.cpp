@@ -125,7 +125,7 @@ static HMODULE load_core()
             typedef void (*AttachFn)(HMODULE);
             AttachFn attach = (AttachFn)(void*)GetProcAddress(core, "AAMOD_AttachCore");
             if (attach)
-                attach(g_self);
+                attach(core);
             else
                 shim_log(L"aamod[%hs]: %s has no AAMOD_AttachCore\n", AAMOD_SHIM_NAME, core_path);
         }
@@ -169,7 +169,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID)
         if (t)
             CloseHandle(t);
         else
-            load_core_async();
+            shim_log(L"aamod[%hs]: bootstrap thread creation failed (err %lu); forwarding only\n", AAMOD_SHIM_NAME, GetLastError());
     }
     return TRUE;
 }

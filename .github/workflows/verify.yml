@@ -1,0 +1,37 @@
+name: 离线SDK与交付回归
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 构建及契约
+        run: |
+          ./build.ps1 -Test -PythonPath (Get-Command python).Source
+          ./tests/run-contracts.ps1
+          ./tests/run-installer.ps1
+          ./tests/run-diagnostics.ps1
+          foreach($name in @('hello','template','diagnostics','state_watch','event_watch','heal_once','image_sample','native_image_sample','data_sample','equipment_watch','content_smoke','build_selector','native_event_watch','event_responder')) {
+            ./tools/build-mod.ps1 -ModDirectory "./mods/$name"
+          }
+      - name: 打包及独立目录验收
+        run: |
+          ./tools/package-preview.ps1 -OutputDirectory ./out/preview
+          $manifest=(Get-ChildItem ./out/preview/*-sha256.json).FullName
+          ./tests/run-package.ps1 -ManifestPath $manifest -PythonPath (Get-Command python).Source -ReportDirectory ./out/package-report
+      - name: 保存离线报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-reports
+          path: out/package-report
+          if-no-files-found: ignore

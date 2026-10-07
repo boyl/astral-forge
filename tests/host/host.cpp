@@ -12,7 +12,7 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include <d3d11.h>
-#include <dxgi.h>
+#include <dxgi1_2.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -148,6 +148,11 @@ int main(int argc, char** argv)
      *    Present dispatches the frame callbacks. */
     HookStateFn hook_state = (HookStateFn)(void*)GetProcAddress(core, "AAMOD_PresentHookState");
     FrameCountFn frame_count = (FrameCountFn)(void*)GetProcAddress(core, "AAMOD_PresentFrameCount");
+    typedef size_t (*ResourceCountFn)(void);
+    ResourceCountFn active_hooks = (ResourceCountFn)GetProcAddress(core, "AAMOD_ActiveHookCount");
+    ResourceCountFn subscribers = (ResourceCountFn)GetProcAddress(core, "AAMOD_SubscriberCount");
+    ResourceCountFn images = (ResourceCountFn)GetProcAddress(core, "AAMOD_ImageCount");
+    if (active_hooks && active_hooks() != 0) { printf("host: FAIL initialization left hooks\n"); fail = 1; }
     DetachFn detach = (DetachFn)(void*)GetProcAddress(core, "AAMOD_DetachPresent");
     if (!hook_state || !frame_count || !detach) {
         printf("host: FAIL core has no present hook entry points\n");
@@ -176,6 +181,17 @@ int main(int argc, char** argv)
             fail = 1;
         } else {
             unsigned int state = hook_state();
+            if (argc > 1 && strcmp(argv[1], "--loader-only") == 0) {
+                if (state != 0) fail = 1;
+                if (context) context->Release();
+                device->Release();
+                typedef void (*ShutdownFn)(void);
+                ShutdownFn shutdown_core = (ShutdownFn)GetProcAddress(core, "AAMOD_ShutdownCore");
+                if (shutdown_core) { shutdown_core(); shutdown_core(); }
+                if ((active_hooks && active_hooks()) || (subscribers && subscribers()) || (images && images())) fail = 1;
+                printf("host: loader-only state=%u, shutdown clean, RESULT=%s\n", state, fail ? "FAIL" : "OK");
+                return fail;
+            }
             printf("host: present hook state   = %u after device creation\n", state);
             if (!(state & 1u)) {
                 printf("host: FAIL device creation did not hook an IDXGIFactory\n");
@@ -252,6 +268,34 @@ int main(int argc, char** argv)
                 chain->Release();
             }
 
+            /* Regression: the factory2 detour must forward HWND as argument 3. */
+            IDXGIFactory2* factory2 = NULL;
+            if (factory && SUCCEEDED(factory->QueryInterface(__uuidof(IDXGIFactory2), (void**)&factory2))) {
+                typedef int (*AttachDeviceFn)(void*);
+                AttachDeviceFn attach_device = (AttachDeviceFn)GetProcAddress(core, "AAMOD_OnD3D11Device");
+                if (attach_device) attach_device(device);
+                DXGI_SWAP_CHAIN_DESC1 desc = {};
+                desc.Width = 64; desc.Height = 64;
+                desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                desc.SampleDesc.Count = 1;
+                desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                desc.BufferCount = 2;
+                desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+                IDXGISwapChain1* chain1 = NULL;
+                hr = factory2->CreateSwapChainForHwnd(device, window, &desc, NULL, NULL, &chain1);
+                printf("host: CreateSwapChainForHwnd = 0x%08lx\n", (unsigned long)hr);
+                if (FAILED(hr) || !chain1) fail = 1;
+                else {
+                    unsigned long long before = frame_count();
+                    DXGI_PRESENT_PARAMETERS parameters = {};
+                    hr = chain1->Present1(0, 0, &parameters);
+                    if (FAILED(hr) || frame_count() != before + 1) fail = 1;
+                    detach();
+                    chain1->Release();
+                }
+                factory2->Release();
+            } else { printf("host: FAIL factory2 unavailable\n"); fail = 1; }
+
             if (factory)
                 factory->Release();
             if (adapter)
@@ -267,6 +311,12 @@ int main(int argc, char** argv)
         }
     }
 
+    typedef void (*ShutdownFn)(void);
+    ShutdownFn shutdown_core = (ShutdownFn)GetProcAddress(core, "AAMOD_ShutdownCore");
+    if (shutdown_core) { shutdown_core(); shutdown_core(); }
+    if ((active_hooks && active_hooks()) || (subscribers && subscribers()) || (images && images())) { printf("host: FAIL shutdown retained resources\n"); fail = 1; }
+    if (ready && ready()) { printf("host: FAIL core remained ready after shutdown\n"); fail = 1; }
+    printf("host: shutdown              complete, repeated call safe\n");
     printf("host: %s\n", fail ? "RESULT=FAIL" : "RESULT=OK");
     return fail;
 }

@@ -27,6 +27,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <map>
+#include <vector>
+#include <tlhelp32.h>
 
 namespace aamod {
 namespace hook {
@@ -75,6 +77,7 @@ struct Tables {
             one[b + 5].imm = 4;
         }
         one[0x63].modrm = 1;                                  // movsxd
+        for (int i = 0x50; i <= 0x5F; ++i) one[i].bad = 0;    // push/pop register, including REX.B forms
         one[0x68].imm = 4;                                    // push imm32
         one[0x69].modrm = 1; one[0x69].imm = 4;               // imul r,r/m,imm32
         one[0x6A].imm = 1;                                    // push imm8
@@ -342,12 +345,59 @@ void* alloc_near(const void* target, size_t size)
 
 struct Patch {
     void*   target;
+    HMODULE owner;
     uint8_t original[32];
     size_t  patched_len;
     void*   trampoline;
+    bool near_patch;
 };
 
 std::map<void*, Patch> g_patches;
+SRWLOCK patches_lock=SRWLOCK_INIT;
+// A relocated call may still have a return address in its trampoline after
+// removal. Keep retired code until process exit; active() counts live patches.
+std::vector<void*> retired_trampolines;
+struct PatchGuard {PatchGuard(){AcquireSRWLockExclusive(&patches_lock);}~PatchGuard(){ReleaseSRWLockExclusive(&patches_lock);}};
+class FrozenThreads {
+    struct Thread {HANDLE handle;bool suspended=false,moved=false;CONTEXT context={};};
+    std::vector<Thread> threads;
+public:
+    bool prepare() {
+        HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,0);if(snapshot==INVALID_HANDLE_VALUE)return false;
+        THREADENTRY32 entry={sizeof(entry)};bool okay=Thread32First(snapshot,&entry)!=0;
+        if(okay)do {
+            if(entry.th32OwnerProcessID==GetCurrentProcessId()&&entry.th32ThreadID!=GetCurrentThreadId()) {
+                HANDLE handle=OpenThread(THREAD_SUSPEND_RESUME|THREAD_GET_CONTEXT|THREAD_SET_CONTEXT|SYNCHRONIZE,FALSE,entry.th32ThreadID);
+                if(handle)threads.push_back({handle});else if(GetLastError()!=ERROR_INVALID_PARAMETER){okay=false;break;}
+            }entry.dwSize=sizeof(entry);
+        }while(Thread32Next(snapshot,&entry));
+        if(okay&&GetLastError()!=ERROR_NO_MORE_FILES)okay=false;CloseHandle(snapshot);return okay;
+    }
+    bool freeze() {
+        // All storage and handles are prepared before suspending threads: no
+        // allocation or logging while a suspended thread may own a heap lock.
+        for(auto& thread:threads) {
+            if(SuspendThread(thread.handle)==DWORD(-1)){if(WaitForSingleObject(thread.handle,0)==WAIT_OBJECT_0)continue;return false;}
+            thread.suspended=true;thread.context.ContextFlags=CONTEXT_CONTROL;
+            if(!GetThreadContext(thread.handle,&thread.context))return false;
+        }return true;
+    }
+    bool move(const Patch& patch,bool installing) {
+        uintptr_t target=(uintptr_t)patch.target,trampoline=(uintptr_t)patch.trampoline;
+        for(auto& thread:threads) {
+            if(!thread.suspended)continue;auto ip=(uintptr_t)thread.context.Rip;uintptr_t next=0;
+            if(installing&&ip>=target&&ip<target+patch.patched_len)next=trampoline+ip-target;
+            if(!installing&&ip>=trampoline&&ip<=trampoline+patch.patched_len)next=target+ip-trampoline;
+            if(!installing&&patch.near_patch&&ip==trampoline+patch.patched_len+14)next=target;
+            if(!next)continue;
+            CONTEXT changed=thread.context;changed.Rip=next;
+            if(!SetThreadContext(thread.handle,&changed)){rollback();return false;}thread.moved=true;
+        }return true;
+    }
+    void rollback(){for(auto& thread:threads)if(thread.moved){SetThreadContext(thread.handle,&thread.context);thread.moved=false;}}
+    void resume(){for(auto& thread:threads)if(thread.suspended){ResumeThread(thread.handle);thread.suspended=false;}}
+    ~FrozenThreads(){resume();for(auto& thread:threads)CloseHandle(thread.handle);}
+};
 
 } // anonymous namespace
 
@@ -368,7 +418,7 @@ bool is_padding(const uint8_t* code, size_t n)
     return true;
 }
 
-bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
+bool install_impl(void* target, void* detour, void** trampoline, size_t min_prologue, bool near_patch)
 {
     if (!target || !detour)
         return false;
@@ -378,7 +428,8 @@ bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
     }
 
     const uint8_t* code = (const uint8_t*)target;
-    const size_t want = min_prologue < 14 ? 14 : min_prologue;
+    uint8_t captured[48];memcpy(captured,code,sizeof(captured));
+    const size_t want = near_patch ? 5 : (min_prologue < 14 ? 14 : min_prologue);
     Insn insns[16];
     size_t copied = 0;
     size_t count = 0;
@@ -389,7 +440,7 @@ bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
             return false;
         }
         Insn in;
-        if (!decode_insn(code + copied, code + copied + 15, &in)) {
+        if (!decode_insn(captured + copied, captured + copied + 15, &in)) {
             log_bytes("undecodable prologue", target, copied, code + copied, 16);
             return false;
         }
@@ -399,15 +450,23 @@ bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
         }
         insns[count++] = in;
         copied += in.len;
+        if (copied > 32) return false;
     }
 
-    const size_t total = copied + 14;
+    const size_t total = copied + 14 + (near_patch ? 14 : 0);
     uint8_t* tramp = (uint8_t*)alloc_near(target, total);
     if (!tramp) {
         AAMOD_ERROR("hook: VirtualAlloc failed for trampoline");
         return false;
     }
-    memcpy(tramp, code, copied);
+    uint8_t* relay = tramp + copied + 14;
+    int64_t relay_delta = (int64_t)(uintptr_t)relay - (int64_t)(uintptr_t)target - 5;
+    if (near_patch && (relay_delta < INT32_MIN || relay_delta > INT32_MAX)) {
+        VirtualFree(tramp, 0, MEM_RELEASE);
+        AAMOD_WARN("hook: no relay within rel32 range of %p", target);
+        return false;
+    }
+    memcpy(tramp, captured, copied);
 
     // Relocate the relative fields: each is relative to the next instruction,
     // so inside the copy every value shifts by exactly (target - tramp).
@@ -444,13 +503,25 @@ bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
     patch[1] = 0x25;
     *(uint32_t*)(patch + 2) = 0;
     *(uint64_t*)(patch + 6) = (uint64_t)detour;
+    if (near_patch) {
+        memcpy(relay, patch, 14);
+        memset(patch, 0x90, sizeof(patch));
+        patch[0] = 0xE9;
+        int32_t displacement = (int32_t)relay_delta;
+        memcpy(patch + 1, &displacement, sizeof(displacement));
+    }
+    FlushInstructionCache(GetCurrentProcess(), tramp, total);
 
     Patch p;
     p.target = target;
+    p.owner = NULL;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                      (LPCWSTR)detour, &p.owner);
     p.patched_len = copied;
     p.trampoline = tramp;
+    p.near_patch = near_patch;
     memset(p.original, 0, sizeof(p.original));
-    memcpy(p.original, code, copied);
+    memcpy(p.original, captured, copied);
 
     DWORD old_prot = 0;
     if (!VirtualProtect(target, copied, PAGE_EXECUTE_READWRITE, &old_prot)) {
@@ -458,19 +529,36 @@ bool install(void* target, void* detour, void** trampoline, size_t min_prologue)
         AAMOD_ERROR("hook: VirtualProtect failed at %p (err %lu)", target, GetLastError());
         return false;
     }
+    FrozenThreads frozen;
+    if(!frozen.prepare()){VirtualProtect(target,copied,old_prot,&old_prot);VirtualFree(tramp,0,MEM_RELEASE);AAMOD_ERROR("hook: cannot prepare thread transaction");return false;}
+    // Allocate the map node before suspension; concurrent core hook requests
+    // are serialized by PatchGuard. The detour sees its original pointer
+    // before executable bytes become active.
+    g_patches[target]=p;
+    if(!frozen.freeze()||memcmp(target,p.original,copied)||!frozen.move(p,true)) {
+        frozen.rollback();frozen.resume();g_patches.erase(target);VirtualProtect(target,copied,old_prot,&old_prot);retired_trampolines.push_back(tramp);AAMOD_ERROR("hook: thread transaction rejected; original bytes retained, prepared code retained for any moved context");return false;
+    }
+    if(trampoline)InterlockedExchangePointer((void*volatile*)trampoline,tramp);
     memcpy(target, patch, copied);
     FlushInstructionCache(GetCurrentProcess(), target, copied);
     VirtualProtect(target, copied, old_prot, &old_prot);
 
-    g_patches[target] = p;
-    if (trampoline)
-        *trampoline = tramp;
+    frozen.resume();
     AAMOD_INFO("hook: installed %p -> %p (%zu bytes, %zu insn, trampoline %p, delta %lld)",
                target, detour, copied, count, tramp, (long long)delta);
     return true;
 }
 
-bool remove(void* target)
+bool install(void* target, void* detour, void** trampoline, size_t min_prologue) {
+    PatchGuard guard;
+    return install_impl(target, detour, trampoline, min_prologue, false);
+}
+bool install_near(void* target, void* detour, void** trampoline) {
+    PatchGuard guard;
+    return install_impl(target, detour, trampoline, 5, true);
+}
+
+bool remove_impl(void* target)
 {
     std::map<void*, Patch>::iterator it = g_patches.find(target);
     if (it == g_patches.end())
@@ -478,20 +566,41 @@ bool remove(void* target)
     Patch& p = it->second;
 
     DWORD old_prot = 0;
+    FrozenThreads frozen;if(!frozen.prepare())return false;
     if (VirtualProtect(target, p.patched_len, PAGE_EXECUTE_READWRITE, &old_prot)) {
+        if(!frozen.freeze()||!frozen.move(p,false)){frozen.rollback();frozen.resume();VirtualProtect(target,p.patched_len,old_prot,&old_prot);AAMOD_ERROR("hook: removal thread transaction failed; owner retained");return false;}
         memcpy(target, p.original, p.patched_len);
         FlushInstructionCache(GetCurrentProcess(), target, p.patched_len);
         VirtualProtect(target, p.patched_len, old_prot, &old_prot);
+        frozen.resume();
+    } else {
+        AAMOD_ERROR("hook: removal failed at %p; trampoline and owner retained", target);
+        return false;
     }
-    VirtualFree(p.trampoline, 0, MEM_RELEASE);
+    retired_trampolines.push_back(p.trampoline);
     g_patches.erase(it);
     AAMOD_INFO("hook: removed %p", target);
     return true;
 }
 
+bool remove(void* target){PatchGuard guard;return remove_impl(target);}
+
+bool remove_module(HMODULE module)
+{
+    PatchGuard guard;
+    bool ok = true;
+    for (auto it = g_patches.begin(); it != g_patches.end();) {
+        void* target = it->first;
+        HMODULE owner = it->second.owner;
+        ++it;
+        if (owner == module && !remove_impl(target)) ok = false;
+    }
+    return ok;
+}
+
 size_t active()
 {
-    return g_patches.size();
+    AcquireSRWLockShared(&patches_lock);size_t count=g_patches.size();ReleaseSRWLockShared(&patches_lock);return count;
 }
 
 } // namespace hook

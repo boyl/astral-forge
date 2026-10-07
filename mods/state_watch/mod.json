@@ -1,0 +1,10 @@
+{
+  "id": "state_watch",
+  "name": "只读状态示例",
+  "version": "0.1.0",
+  "entry": "state_watch.dll",
+  "enabled": true,
+  "api_version": 1,
+  "min_api_size": 152,
+  "required_capabilities": 64
+}

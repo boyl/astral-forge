@@ -18,17 +18,51 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "game.h"
+#include "state.h"
+#include "events.h"
+#include "commands.h"
+#include "resources.h"
+#include "native_images.h"
+#include "data.h"
+#include "equipment.h"
+#include "combat.h"
+#include "catalog.h"
+#include "equipment_commands.h"
+#include "gameplay_events.h"
 
-#if defined(_WIN32)
-#  define AAMOD_EXPORT extern "C" __declspec(dllexport)
+#ifdef __cplusplus
+#  define AAMOD_EXTERN extern "C"
 #else
-#  define AAMOD_EXPORT extern "C"
+#  define AAMOD_EXTERN extern
+#endif
+#if defined(_WIN32)
+#  define AAMOD_EXPORT AAMOD_EXTERN __declspec(dllexport)
+#else
+#  define AAMOD_EXPORT AAMOD_EXTERN
 #endif
 
 #define AAMOD_ABI_VERSION      1u
 #define AAMOD_OK               0u
 #define AAMOD_ERR_GENERIC      1u
 #define AAMOD_ERR_ABI          2u
+
+/* Implemented API services; availability does not certify game compatibility. */
+#define AAMOD_CAP_HOOKS        (UINT64_C(1) << 0)
+#define AAMOD_CAP_ANCHORS      (UINT64_C(1) << 1)
+#define AAMOD_CAP_FRAMES        (UINT64_C(1) << 2)
+#define AAMOD_CAP_EVENTS        (UINT64_C(1) << 3)
+#define AAMOD_CAP_ASSETS        (UINT64_C(1) << 4)
+#define AAMOD_CAP_GAME_INFO     (UINT64_C(1) << 5)
+#define AAMOD_CAP_GAME_STATE    (UINT64_C(1) << 6)
+#define AAMOD_CAP_STATE_EVENTS  (UINT64_C(1) << 7)
+#define AAMOD_CAP_COMMANDS      (UINT64_C(1) << 8)
+#define AAMOD_CAP_PNG_RESOURCES (UINT64_C(1) << 9)
+#define AAMOD_CAP_NATIVE_IMAGES (UINT64_C(1) << 10)
+#define AAMOD_CAP_PLUGIN_DATA   (UINT64_C(1) << 11)
+#define AAMOD_CAP_CONTENT_CATALOG (UINT64_C(1) << 12)
+#define AAMOD_CAP_EQUIPMENT_COMMANDS (UINT64_C(1) << 13)
+#define AAMOD_CAP_GAMEPLAY_EVENTS (UINT64_C(1) << 14)
 
 /* Log levels */
 #define AAMOD_LOG_TRACE   0
@@ -46,7 +80,7 @@ typedef const char* (*AAModConfigStrFn)(const char* key, const char* default_val
 typedef int64_t     (*AAModConfigIntFn)(const char* key, int64_t default_value);
 
 /* ------- subsystem: hooks (x64 inline patching) -------
- * Install patches `target` (must be at least 12 bytes of patchable memory)
+ * Install patches `target` (must have at least 14 bytes of whole instructions)
  * with a jump to `detour`. On success *trampoline receives a callable
  * pointer that executes the original prologue + jumps back.
  * Returns AAMOD_OK on success. Thread-safety: call from the main thread.
@@ -85,8 +119,9 @@ typedef int (*AAModAnchorFindFn)(void* module, const char* literal, void** code,
 /* ------- subsystem: frames (defined in M1) -------
  * The core hooks the D3D11 present path (the game imports D3D11CreateDevice
  * from d3d11.dll, which the shim proxies), so a mod can run code once per
- * rendered frame - the natural place to draw an overlay or to advance
- * per-frame game logic.
+ * rendered frame, suitable for overlays and visual animation. This is not
+ * the game update boundary; do not mutate gameplay objects from this callback.
+ * Query game_state for a coherent copied snapshot.
  *
  * Callbacks run on the render thread, *before* the frame is presented, so
  * drawing into the back buffer is still possible. Keep them short: blocking
@@ -144,7 +179,42 @@ typedef struct AAModAPI {
     /* 8. frames (M1) - appended, never reordered */
     AAModFrameSubscribeFn   frame_subscribe;
     AAModFrameUnsubscribeFn frame_unsubscribe;
+    /* Appended in the developer preview; old ABI 1 plugins keep their layout. */
+    uint64_t (*capabilities)(void);
+    /* Appended in 0.1.3. Copies a cached identity into caller-owned memory.
+     * Null/short buffers return AAMOD_ERR_ARGUMENT without writing.
+     * Unknown executables remain loadable, but receive no game profile. */
+    AAModGameInfoFn game_info;
+    /* Appended in 0.1.4. Service exists even for unsupported executables;
+     * the returned status describes actual adapter availability. */
+    AAModGameStateFn game_state;
+    /* Copied snapshot differences; legacy event_subscribe remains reserved. */
+    AAModStateEventsFn state_events;
+    uint64_t command_owner;
+    AAModCommandSubmitFn command_submit;
+    AAModCommandResultFn command_result;
+    uint64_t resource_owner;
+    AAModImageLoadFn image_load;
+    AAModImageReleaseFn image_release;
+    AAModNativeImageInfoFn native_image_info;
+    AAModImageReplaceFn image_replace;
+    AAModImageRestoreFn image_restore;
+    AAModImageReplacementStatusFn image_replacement_status;
+    AAModImageReplacementForgetFn image_replacement_forget;
+    uint64_t data_owner;
+    AAModDataReadFn data_read;
+    AAModDataWriteFn data_write;
+    AAModDataDeleteFn data_delete;
+    AAModEquipmentFn equipment;
+    AAModCombatStateFn combat_state;
+    AAModCatalogFn content_catalog;
+    AAModEquipmentSubmitFn equipment_submit;
+    AAModEquipmentResultFn equipment_result;
+    AAModGameplayEventsFn gameplay_events;
 } AAModAPI;
+
+#define AAMOD_API_HAS(api, member) \
+    ((api)->api_size >= offsetof(AAModAPI, member) + sizeof((api)->member))
 
 /* Logging helper baked into the header so mods need no extra lib */
 #define AAMOD_LOGT(api, ...) ((api)->log(AAMOD_LOG_TRACE, __VA_ARGS__))

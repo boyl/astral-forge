@@ -47,9 +47,11 @@ void present_detach_all();
 
 bool present_subscribe(FrameCallback cb, void* user);
 bool present_unsubscribe(FrameCallback cb, void* user);
+void present_unsubscribe_module(HMODULE module);
 
 uint64_t present_frame_count();
 uint32_t present_hook_state();   /* bit 1: factory hooked, bit 2: chain hooked */
+size_t present_subscriber_count();
 
 bool present_backbuffer_size(void* swap_chain, uint32_t* width, uint32_t* height);
 

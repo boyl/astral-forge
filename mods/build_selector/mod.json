@@ -1,0 +1,10 @@
+{
+  "id": "aamod.build-selector",
+  "name": "构筑选择器 SDK 示例",
+  "version": "0.1.9",
+  "enabled": false,
+  "entry": "build_selector.dll",
+  "api_version": 1,
+  "min_api_size": 320,
+  "required_capabilities": 14592
+}

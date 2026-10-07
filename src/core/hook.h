@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <windows.h>
 
 namespace aamod {
 namespace hook {
@@ -23,8 +24,17 @@ namespace hook {
 //
 // `min_prologue` may be used to demand more than 14 bytes (e.g. 16) so a later
 // hook can be layered on the same site.
+// Patch transactions suspend other process threads and migrate their IPs.
+// Pass the actual original-function storage as trampoline output: it is
+// published before enabling executable bytes. Removal retires trampoline
+// code until process exit to keep in-flight return addresses valid. A plugin
+// must still drain its own detour callbacks before unloading its DLL.
 bool install(void* target, void* detour, void** trampoline, size_t min_prologue = 14);
+// Internal adapter entry: five-byte rel32 jump to a verified nearby relay.
+// Leaves rel8 instructions beyond the copied prefix in their original place.
+bool install_near(void* target, void* detour, void** trampoline);
 bool remove(void* target);
+bool remove_module(HMODULE module);
 
 // Number of currently installed hooks.
 size_t active();

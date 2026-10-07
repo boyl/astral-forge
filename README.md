@@ -1,200 +1,98 @@
-# aamod — an open base mod for Astral Ascent
+# Astral Forge · 星界战士 Mod 开发基座
 
-`aamod` is a runtime mod loader and C ABI for **Astral Ascent** (Construct 2 +
-[Chowdren](https://github.com/matpow2/chowdren) v1388, 64-bit, no SteamStub, no
-packer). It gives mod authors the low-level pieces that a mod loader normally
-has to build from scratch — DLL injection, configuration, logging, memory,
-inline hooks, and (in later milestones) frame/event callbacks, overlay UI, and
-asset replacement — behind a small, versioned C interface that any language
-with a C FFI can call.
+基于原 aamod 的 MIT 源码和历史继续维护，为《星界战士》（Astral Ascent）的 C/C++ Mod 开发者提供加载器、版本化 C ABI 和游戏适配接口。
 
-Nothing about the game is patched on disk: the loader arrives as a *proxy DLL*
-placed next to the executable, exactly the way Ultimate ASI Loader and
-ReShade-class hooks work.
+当前 **0.1.9-dev：开发者试用预发布**。按可服务更多开发者的方向设计，当前以少量开发者试用标准交付。
 
-## Status
+## 目录
 
-| Milestone | Contents | State |
-|-----------|----------|-------|
-| M-1 | Recon: injection viability, engine identification, asset format, toolchain | **done** |
-| M0 | Proxy shim + core loader + C ABI + inline hook engine | **done, verified offline** |
-| M1 | Engine anchor resolver, D3D11/DXGI present hook, frame callbacks | **offline half done, verified offline**; in-game run pending |
-| M2 | Game event & system queries (frame id, object list, global variables) | planned |
-| M3 | Overlay UI (own minimal renderer, ImGui optional backend) | planned |
-| M4 | Asset access/replacement (`Assets.dat` reader, image/sound override) | planned |
-| M5 | Data layer: object/instance reads, RNG, input | planned |
-| M6 | Hardening: CI, docs, ABI freeze, error reporting, mod packaging | planned |
-| M7 | Lua scripting host on top of the C ABI | later |
+- [下载与兼容](#下载与兼容)
+- [关键功能](#关键功能)
+- [安装与卸载](#安装与卸载)
+- [开始开发](#开始开发)
+- [示例与文档](#示例与文档)
+- [验证与限制](#验证与限制)
+- [反馈与许可证](#反馈与许可证)
 
-Everything below M1 is exercised by an offline harness (`build.ps1 -Test`) that
-loads the built proxies into a test executable, forwards real calls to renamed
-copies of the system DLLs, loads `aamod_core.dll`, discovers and runs a sample
-mod, exercises three inline-hook prologue shapes, creates a real D3D11 device and
-swap chain, and drives three `Present` calls — the sample mod receives all three
-as frame callbacks. **Nothing has run inside the actual game yet**; that needs
-the game directory to be written to (see Install).
+## 下载与兼容
 
-## Build
+前往 [GitHub Releases](https://github.com/boyl/astral-forge/releases)：
 
-Requirements: Visual Studio 2022 Build Tools (MSVC 14.44 or newer, x64),
-PowerShell 7, Python 3.11+ (only for `tools/gen_shim_def.py`).
+- `aamod-0.1.9-dev-runtime.zip`：加载器、预编译示例、SDK、安装器和文档。
+- `aamod-0.1.9-dev-source.zip`：可独立构建的源码。
+- `aamod-0.1.9-dev-sha256.json`：归档与逐文件 SHA-256 清单。
 
-```powershell
-cd astral-forge
-.\build.ps1 -Test        # build, then run the offline end-to-end test
-```
+已验证 **Steam Windows x64 · Astral Ascent 2.6.4 · 单人**。游戏更新后先检查适配状态；精确 EXE 指纹与覆盖范围见 [试用验收矩阵](docs/试用验收矩阵.md)。
 
-Artifacts land in `out/`:
+## 关键功能
 
-| File | Purpose |
-|------|---------|
-| `winmm.dll`, `version.dll`, `d3d11.dll` | proxy shims, export-compatible with the system DLLs |
-| `aamod_core.dll` | the loader: config, logging, mod discovery, hooks |
-| `host.exe` | test harness (not shipped) |
-| `hello.dll` | sample mod (not shipped) |
+| 能力 | 可以构建的内容 |
+| --- | --- |
+| 加载与 SDK | C/C++ 原生插件、日志、配置、锚点与 hook；ABI 1，API 328 字节，保留旧前缀 |
+| 状态与原生事件 | 场景、玩家、血量、法力；响应原生伤害、水晶拾取、开局和结束 |
+| 构筑接口 | 光环/技能目录、五个光环槽与四个技能槽，按契约受控修改 |
+| 受控命令 | 回血、法力补充、装备修改、原生保存派发和请求结果 |
+| 菜单与持久数据 | 共享搜索选配菜单、键鼠交互、插件自有预设和跨进程恢复 |
+| 图片服务 | 插件 PNG 服务、原生图片替换/恢复；任意新资源注册尚未开放 |
 
-Each shim is generated: `tools/gen_shim_def.py` reads the export table of the
-system DLL and emits a `.def`, a MASM stub file, a jump table, and a config
-header. `.\build.ps1 -SkipDef` reuses the existing generated files.
+`build_selector` 演示选配与预设；`event_responder` 演示伤害回血和水晶拾取补充法力。玩法修改示例默认关闭，需要明确启用。
 
-## Install
+## 安装与卸载
+
+需要 PowerShell 7。解压运行包，关闭游戏，在解压目录执行：
 
 ```powershell
-.\install.ps1 -WhatIf              # show exactly what would be written
-.\install.ps1                      # requires the game to be closed (winmm proxy)
-.\install.ps1 -Shim d3d11          # also install the D3D11 present proxy
-.\install.ps1 -Uninstall           # removes only the files it installed
+./install.ps1 -GameDir '你的 Astral Ascent 游戏目录' -WhatIf
+./install.ps1 -GameDir '你的 Astral Ascent 游戏目录'
+./tools/launch-game.ps1 -GameDir '你的 Astral Ascent 游戏目录'
 ```
 
-The installer copies the selected proxy (`winmm.dll` by default), the matching
-renamed copy of the real system DLL (`winmmHooked.dll`), and `aamod_core.dll`
-into the game directory, creates `<game>\aamod\{mods,logs}` with a default
-`config.ini`, and writes `aamod/install.json` with a SHA-256 per file so
-uninstall can verify it removes its own files and nothing else.
+默认使用 **winmm 入口**，保留 BD Mod 的 `version.dll`；未知入口和文件漂移拒绝覆盖。安装、更新与卸载保留用户插件、配置和日志；游戏目录需要写权限。
 
-`winmm.dll` is enough to get the loader into the game (the executable imports it
-statically). `d3d11.dll` additionally hooks device/swap-chain creation, which is
-what enables frame callbacks and, later, the overlay; the executable imports
-`D3D11CreateDevice` from it statically, and ANGLE's `libGLESv2` also resolves
-`d3d11.dll` by base name, so both paths land on the proxy. Only one `-Shim` is
-installed per invocation; run the installer again with another `-Shim` to add it.
-
-Mods live in `<game>\aamod\mods\<mod id>\`.
-
-## Writing a mod
-
-A mod is one DLL exporting `AAMOD_Init`; `AAMOD_Shutdown` is optional.
-
-```c
-#include <aamod/aamod.h>
-
-AAMOD_EXPORT uint32_t AAMOD_Init(const AAModAPI* api, uint32_t api_size) {
-    AAMOD_LOGI(api, "my mod up, game dir = %s", api->game_dir);
-    int speed = api->config_int("my_mod.speed", 3);
-
-    /* find an engine function by a message it prints, then hook it */
-    void* target = NULL;
-    size_t size  = 0;
-    if (api->anchor_find(NULL, "Could not load image ", &target, &size)) {
-        void* trampoline = NULL;
-        api->hook_install(target, my_detour, &trampoline);
-    }
-    return AAMOD_OK;
-}
-
-AAMOD_EXPORT void AAMOD_Shutdown(void) { /* optional */ }
-```
-
-`my_mod/mod.json` describes the mod:
-
-```json
-{ "id": "my_mod", "name": "My Mod", "version": "1.0.0",
-  "author": "you", "entry": "my_mod.dll", "priority": 10 }
-```
-
-Higher `priority` loads (and initialises) first; ties break on `id`.
-`AAMOD_Shutdown` is called in reverse order.
-
-## Frame callbacks
-
-With the `d3d11` proxy installed, the loader hooks the D3D11/DXGI path and turns
-every `IDXGISwapChain::Present` into a callback:
-
-```c
-static void on_frame(const AAModFrameInfo* info, void* user) {
-    if (info->size != sizeof(AAModFrameInfo))   /* ABI guard */
-        return;
-    /* info->frame_index, info->width, info->height, info->device, info->context */
-}
-/* in AAMOD_Init */
-api->frame_subscribe(on_frame, my_user_data);
-```
-
-`frame_subscribe` returns false if the hook could not be installed or the
-subscriber table (32 entries) is full; `frame_unsubscribe` stops delivery. The
-loader keeps the counters running even without subscribers, and `AAMOD_DetachPresent`
-(or `AAMOD_Shutdown`) removes every hook and restores the original vtables.
-
-How it works: the proxy intercepts `D3D11CreateDevice` /
-`D3D11CreateDeviceAndSwapChain`, walks `ID3D11Device` → `IDXGIDevice` → adapter →
-`IDXGIFactory`, and replaces the *object's* vtable with a copy whose
-`CreateSwapChain`/`CreateSwapChainForHwnd`/`CreateSwapChainForComposition` entries
-point at load-time detours; the created swap chain gets the same treatment for
-`Present`, `Present1` and `ResizeBuffers`. Only that object is affected — other
-factories and chains in the process are untouched. No `dxgi.lib`/`d3d11.lib`
-imports and no DXGI headers are involved: slots are called through `void**`
-indexes, so the loader does not depend on any SDK version. Mod exceptions inside
-a callback are caught (`__try`/`__except`) so a broken mod cannot kill the frame.
-
-### ABI policy
-
-`AAModAPI` is a fixed-order struct of function pointers and values, beginning
-with `api_version` and `api_size`. New members are only ever **appended**, so
-a mod built against an older header keeps working; a mod checks
-`api_version`/`api_size` before touching a field it needs. The current version
-is `AAMOD_ABI_VERSION = 1`.
-
-## Repository layout
-
-```
-include/aamod/aamod.h   public C ABI (the only header mods need)
-src/core/               loader: bootstrap, config, logging, mod discovery, hooks,
-                        anchor.cpp (function lookup from message strings),
-                        present.cpp (D3D11/DXGI device, factory and swap-chain hooks)
-src/shim/               shim_common.cpp + per-DLL generated stubs
-src/shim/d3d11/         d3d11_intercept.cpp (D3D11CreateDevice* -> core)
-tools/                  gen_shim_def.py (export-table driven stub generator)
-tools/find_anchors.py   offline anchor miner (--find/--callers/--pointers/--spec)
-tools/anchors.json      verified engine anchors for the current game build
-mods/hello/             sample mod used by the test harness
-tests/host/             offline test executable
-docs/                   architecture and engine notes
-install.ps1, build.ps1
-```
-
-## Finding engine functions
-
-The game ships no symbols, but its functions are usually recognisable by the
-messages they print. `tools/find_anchors.py` climbs from a string to the
-function that prints it and onwards:
+受控命令用启动脚本 `-Commands` 显式启用。原生事件与插件启用方式见 [内容开发者快速开始](docs/内容开发者快速开始.md)。渲染回调默认关闭，需要 `-Render` 显式开启；当前推荐默认 winmm 路径。
 
 ```powershell
-python tools\find_anchors.py --find "imgui.ini"        # string -> function
-python tools\find_anchors.py --callers 0x5ce670        # who calls it
-python tools\find_anchors.py --pointers 0x7c010        # vtable/callback slots
-python tools\find_anchors.py --spec tools\anchors.json # re-verify known anchors
+./tools/launch-game.ps1 -GameDir '你的 Astral Ascent 游戏目录' -Commands
+./install.ps1 -GameDir '你的 Astral Ascent 游戏目录' -Uninstall
 ```
 
-The same resolution is available to mods at runtime through
-`AAModAPI::anchor_find`, so a mod never hardcodes an address. Verified anchors
-and the call chains discovered so far are in `docs/engine-notes.md`.
+更换入口前先卸载。完整安装和排错见 [试用版交付流程](docs/试用版交付流程.md) 与 [SUPPORT](SUPPORT.md)。
 
-## Notes
+## 开始开发
 
-* `research/` holds a read-only engine source snapshot used as a reference for
-  reverse engineering. It is **not** part of this project, is git-ignored, and
-  is never redistributed or linked against.
-* Not affiliated with Hibernian Workshop, Scirra, or the Chowdren author.
-  Game files are read at runtime only; no game content is bundled.
+构建需要 Windows x64、PowerShell 7、Visual Studio C++ 构建工具和 Python 3.11 以上。源码包或仓库均可独立构建，命令在 PowerShell 7 中执行：
 
-MIT licensed — see [LICENSE](LICENSE).
+```powershell
+./build.ps1 -Test -PythonPath '你的 Python 可执行文件路径'
+./tests/run-contracts.ps1
+./tests/run-installer.ps1
+./tools/build-mod.ps1 -ModDirectory ./mods/template
+```
+
+从 `mods/template` 开始，按结构大小与能力检查访问 API。先在独立宿主验证，再部署到匹配版本游戏。插件是原生 DLL，没有恶意代码沙箱；仅加载可信插件。
+
+## 示例与文档
+
+运行包包含 14 个示例及其源码，公开示例只依赖 SDK。
+
+- [内容开发者快速开始](docs/内容开发者快速开始.md)：两个完整示例、启用步骤与开发闭环。
+- [开发者起步](docs/开发者起步.md) · [SDK 稳定规则](docs/SDK稳定规则.md)。
+- [只读状态](docs/只读状态接口.md) · [状态事件](docs/状态事件接口.md) · [原生玩法事件](docs/原生玩法事件接口.md)。
+- [受控修改](docs/受控修改接口.md) · [PNG 服务](docs/PNG资源接口.md) · [原生图片替换](docs/原生图片替换接口.md)。
+- [内容开发闭环](docs/内容开发闭环.md) · [路线图](docs/接管与路线图.md) · [CHANGELOG](CHANGELOG.md)。
+
+## 验证与限制
+
+试用候选通过独立解压构建、14 示例编译、旧 ABI/宿主契约、安装/诊断/卸载与包审计。技能名称、图标、施法、升级尾部、换房和重启有隔离实机证据；双示例同进程组合及组合预设新进程恢复通过。部分历史结束事件证据对应此前构建，以验收矩阵为准。
+
+- 仅认证上述精确版本与单人；多人、控制器、其他 DPI 和其他版本未认证。
+- 技能替换清除四个 gambit ID，保留升级及实例身份尾部；不提供任意等级或冷却写入。
+- `SAVE_DISPATCHED` 只表示原生保存入口已派发，不代表持久化成功。
+- Lua、通用房间事件、其他拾取类型、任意新资源注册与热重载尚未开放。
+- 曾发生 D3D 设备失效，后续台前启动未复现，根因未确定；后台独立桌面路线不作为支持能力。图形设备重建未认证。
+
+## 反馈与许可证
+
+问题提交到 [Issues](https://github.com/boyl/astral-forge/issues)，附游戏/框架版本、日志与复现步骤，先删除个人信息。贡献见 [CONTRIBUTING](CONTRIBUTING.md)。
+
+保留原 aamod 的 MIT 许可与贡献者声明，见 [LICENSE](LICENSE)；依赖见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。社区项目，与游戏官方没有隶属关系，不分发游戏资源、个人存档或 BD Mod。

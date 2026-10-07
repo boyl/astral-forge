@@ -1,0 +1,18 @@
+[h1]Astral Forge · 星界战士 Mod 开发基座[/h1]
+为 C/C++ Mod 开发者提供版本化 SDK 与游戏适配接口，当前为 0.1.9-dev 开发者试用版。
+
+[h2]关键功能[/h2]
+[list]
+[*]插件加载、日志、配置与版本化 C ABI。
+[*]光环/技能目录、装备查询与受控选配。
+[*]原生伤害、水晶拾取、开局/结束事件；受控回血与法力补充。
+[*]共享搜索菜单、插件预设保存与重启恢复。
+[*]PNG 服务、原生图片替换及 14 个 SDK 示例。
+[/list]
+
+[h2]适用范围与安装[/h2]
+已验证 Steam Windows x64 2.6.4 单人。玩法修改示例默认关闭；多人、其他版本、控制器与图形设备重建未认证。曾出现未定位的图形启动故障。
+加载器需要按 GitHub 说明部署，不能承诺仅订阅即可加载原生 DLL。
+
+[url=https://github.com/boyl/astral-forge]GitHub：完整功能、安装说明、SDK 文档与源码[/url]
+[url=https://github.com/boyl/astral-forge/releases]下载最新试用包[/url]

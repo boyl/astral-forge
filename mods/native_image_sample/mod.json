@@ -1,0 +1,10 @@
+{
+  "id": "native_image_sample",
+  "name": "原生图片替换示例",
+  "version": "0.1.7-dev",
+  "entry": "native_image_sample.dll",
+  "enabled": false,
+  "api_version": 1,
+  "min_api_size": 248,
+  "required_capabilities": 1024
+}
