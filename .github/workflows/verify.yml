@@ -6,6 +6,8 @@ jobs:
   verify:
     runs-on: windows-2022
     timeout-minutes: 20
+    env:
+      PYTHONIOENCODING: utf-8
     defaults:
       run:
         shell: pwsh

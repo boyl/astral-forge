@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$ManifestPath,[Parameter(Mandatory)][string]$PythonPath,[Parameter(Mandatory)][string]$ReportDirectory)
 $ErrorActionPreference='Stop'
+$env:PYTHONIOENCODING='utf-8'
 $manifestFile=(Resolve-Path -LiteralPath $ManifestPath).Path
 $manifest=Get-Content -LiteralPath $manifestFile -Raw|ConvertFrom-Json
 $report=[IO.Path]::GetFullPath($ReportDirectory)
