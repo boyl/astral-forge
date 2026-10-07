@@ -45,7 +45,7 @@ function Source-Items([string[]]$Folders){
         }
     }
 }
-$rootFiles=@('README.md','LICENSE','THIRD_PARTY_NOTICES.md','CHANGELOG.md','CONTRIBUTING.md','SUPPORT.md','build.ps1','install.ps1','.gitignore')
+$rootFiles=@('README.md','LICENSE','THIRD_PARTY_NOTICES.md','CHANGELOG.md','CONTRIBUTING.md','SUPPORT.md','build.ps1','install.ps1','.gitignore','.gitattributes')
 $source=@(Source-Items @('src','include','mods','tests','tools','docs','schemas','.github'))
 $source+=@($rootFiles|ForEach-Object {@{Name=$_;Path=(Join-Path $repoRoot $_)}})
 $runtime=@($required|ForEach-Object {@{Name="out/$_";Path=(Join-Path $repoRoot "out/$_")}})
