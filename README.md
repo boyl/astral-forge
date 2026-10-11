@@ -2,7 +2,7 @@
 
 基于原 aamod 的 MIT 源码和历史继续维护，为《星界战士》（Astral Ascent）的 C/C++ Mod 开发者提供加载器、版本化 C ABI 和游戏适配接口。
 
-当前 **0.1.9-dev：开发者试用预发布**。按可服务更多开发者的方向设计，当前以少量开发者试用标准交付。
+当前 **0.1.9-dev · 2026-10-11 兼容修订：开发者试用预发布**。按可服务更多开发者的方向设计，当前以少量开发者试用标准交付。
 
 ## 目录
 
@@ -16,13 +16,13 @@
 
 ## 下载与兼容
 
-前往 [GitHub Releases](https://github.com/boyl/astral-forge/releases)：
+前往 [本次兼容修订](https://github.com/boyl/astral-forge/releases/tag/v0.1.9-dev-20261011)：
 
 - `aamod-0.1.9-dev-runtime.zip`：加载器、预编译示例、SDK、安装器和文档。
 - `aamod-0.1.9-dev-source.zip`：可独立构建的源码。
 - `aamod-0.1.9-dev-sha256.json`：归档与逐文件 SHA-256 清单。
 
-已验证 **Steam Windows x64 · Astral Ascent 2.6.4 · 单人**。游戏更新后先检查适配状态；精确 EXE 指纹与覆盖范围见 [试用验收矩阵](docs/试用验收矩阵.md)。
+本次已验证 **Steam Windows x64 · Astral Ascent 2.7.3 · 单人**。运行时按代码、字段和调用关系逐项验证能力，不以版本号或 EXE 哈希作为功能白名单。哈希用于诊断和制品核对；范围、实机结果及未覆盖项见 [更新验收](docs/acceptance/更新兼容性.md) 与 [试用验收矩阵](docs/试用验收矩阵.md)。
 
 ## 关键功能
 

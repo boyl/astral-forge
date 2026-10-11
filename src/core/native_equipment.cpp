@@ -1,4 +1,5 @@
 #include "native_equipment.h"
+#include "game_layout.h"
 #include "game_equipment.h"
 #include "log.h"
 #include "../vendor/nlohmann/json.hpp"
@@ -25,9 +26,9 @@ bool string_copy(void* value,std::string& text) {
 bool room(NativeEquipmentContext& context,uint32_t* result) {
     __try {
         unsigned char value[72]={};
-        auto get=(void*(*)(void*,void*,void*))(context.base+0x499c1e0);
-        auto progress=*(void**)(context.base+0xc08c600);if(!progress)return false;
-        get(progress,value,context.base+0xc43d250);
+        auto get=(void*(*)(void*,void*,void*))(context.base+game_layout.json_get);
+        auto progress=*(void**)(context.base+game_layout.progress_object);if(!progress)return false;
+        get(progress,value,context.base+game_layout.room_path);
         double number=*(double*)(value+8);
         if(value[0]!=0||!std::isfinite(number)||number<0||number>UINT32_MAX||number!=std::floor(number))return false;
         *result=(uint32_t)number;return true;
@@ -35,8 +36,8 @@ bool room(NativeEquipmentContext& context,uint32_t* result) {
 }
 bool cached_checkpoint(NativeEquipmentContext& context,void** output) {
     __try {
-        if(*(uint32_t*)(context.base+0xc0b7ca0)<2)return false;
-        auto object=*(unsigned char**)(context.base+0xc0b7cb0);if(!object)return false;
+        if(*(uint32_t*)(context.base+game_layout.checkpoint_count)<2)return false;
+        auto object=*(unsigned char**)(context.base+game_layout.checkpoint_object);if(!object)return false;
         auto variables=*(unsigned char**)(object+0x38);if(!variables)return false;
         *output=variables+0x40;return true;
     } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH){return false;}
@@ -53,9 +54,9 @@ bool prepare(NativeEquipmentContext& context,Checkpoint& checkpoint) {
 }
 bool assign_and_save(NativeEquipmentContext& context,void* target,const char* text,uint32_t length) {
     __try {
-        auto assign=(void(*)(void*,const char*,uint32_t))(context.base+0x63f9a0);
-        auto save=(void(*)(void*))(context.base+0x15fda50);
-        assign(target,text,length);*(double*)((unsigned char*)context.frame+0x1c95e0)=1;save(context.frame);return true;
+        auto assign=(void(*)(void*,const char*,uint32_t))(context.base+game_layout.assign);
+        auto save=(void(*)(void*))(context.base+game_layout.checkpoint_save);
+        assign(target,text,length);*(double*)((unsigned char*)context.frame+game_layout.save_pending)=1;save(context.frame);return true;
     } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH){return false;}
 }
 bool save(NativeEquipmentContext& context,Checkpoint& checkpoint,double** slots,void** gambits) {
@@ -82,7 +83,7 @@ bool spell_icon(NativeEquipmentContext& context,uint32_t slot,uint32_t expected,
             auto object=*(unsigned char**)(layer+0x68);unsigned visited=0;
             while(object!=sentinel) {
                 if(!object || ++visited>20000)return false;
-                if(*(uint32_t*)(object+0x68)==0x1aa0) {
+                if(native_object_named(*(void**)(object+8),"obj_ui_spell_icon")) {
                     auto variables=*(unsigned char**)(object+0x38);
                     if(*(double*)(variables+0x880)==double(slot)+1 && *(double*)(variables+0x888)==1.0) {
                         auto definition=(double*)(variables+0x8a8);
@@ -101,22 +102,24 @@ bool mutate(NativeEquipmentContext& context,const AAModEquipmentCommand& request
         double* icon=nullptr;
         if(request.kind==AAMOD_CONTENT_SPELL && !spell_icon(context,request.slot,request.expected_id,&icon))return false;
         if(request.kind==AAMOD_CONTENT_SPELL) {
-            auto assign=(void(*)(void*,const char*,uint32_t))(context.base+0x63f9a0);
+            auto assign=(void(*)(void*,const char*,uint32_t))(context.base+game_layout.assign);
             assign(gambits[request.slot],replacement.data(),(uint32_t)replacement.size());
         }
         unsigned index=request.kind==AAMOD_CONTENT_AURA?request.slot:request.slot+5;*slots[index]=request.id;
         if(request.kind==AAMOD_CONTENT_SPELL) {
             *icon=request.id;
         }
-        ((void(*)(void*))(context.base+0x1450440))(context.frame);
+        ((void(*)(void*))(context.base+game_layout.refresh))(context.frame);
         if(request.kind==AAMOD_CONTENT_SPELL) {
-            native_refresh_spell((NativeSpellRefreshFn)(context.base+0x3582dc0),context.frame,request.slot);
+            native_refresh_spell((NativeSpellRefreshFn)(context.base+game_layout.gambit_refresh),context.frame,request.slot);
         }
         return *slots[index]==request.id;
     } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH){return false;}
 }
 }
 void native_equipment_apply(void* raw,const AAModEquipmentCommand& request,AAModEquipmentResult& result) {
+    if(!game_layout.equipment){result.status=AAMOD_EQUIPMENT_UNAVAILABLE;return;}
+    if((request.flags&AAMOD_EQUIPMENT_SAVE_CHECKPOINT)&&!game_layout.checkpoint){result.status=AAMOD_EQUIPMENT_UNAVAILABLE;return;}
     auto& context=*(NativeEquipmentContext*)raw;double* slots[9]={};void* gambits[4]={};
     if(!game_equipment_fields(context.base,slots,gambits)){result.status=AAMOD_EQUIPMENT_FAULT;return;}
     unsigned index=request.kind==AAMOD_CONTENT_AURA?request.slot:request.slot+5;
@@ -139,6 +142,7 @@ void native_equipment_apply(void* raw,const AAModEquipmentCommand& request,AAMod
     } catch(const Json::exception& e){result.error=AAMOD_ERR_CONTENT_FORMAT;if(result.status==AAMOD_EQUIPMENT_APPLIED)result.checkpoint_status=AAMOD_CHECKPOINT_FAILED;else result.status=AAMOD_EQUIPMENT_FAULT;AAMOD_ERROR("equipment checkpoint: %s",e.what());}
 }
 void native_equipment_checkpoint(void* raw,const AAModEquipmentCommand& request,AAModEquipmentResult& result) {
+    if(!game_layout.checkpoint){result.checkpoint_status=AAMOD_CHECKPOINT_FAILED;return;}
     auto& context=*(NativeEquipmentContext*)raw;uint32_t current_room;
     if(!room(context,&current_room)){result.checkpoint_status=AAMOD_CHECKPOINT_FAILED;return;}
     if(!current_room)return;

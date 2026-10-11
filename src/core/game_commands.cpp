@@ -1,3 +1,4 @@
+#include "game_scene.h"
 #include "game_commands.h"
 #include <windows.h>
 #include <vector>
@@ -89,11 +90,11 @@ void game_commands_process(void* frame, AAModGameState* state, HealthWrite write
         auto& result = record.result; auto& player = state->players[record.request.player];
         result.update_thread_id = state->update_thread_id;
         if (record.request.scene_epoch != state->scene_epoch) result.status = AAMOD_COMMAND_STALE;
-        else if (state->status != AAMOD_STATE_READY || (state->scene_index != 266 && state->scene_index != 268) ||
+        else if (state->status != AAMOD_STATE_READY || (!hub_scene(*state) && !gameplay_scene(*state)) ||
             !player.present || !(player.valid_fields & AAMOD_PLAYER_HEALTH) || player.health <= 0 || player.health > player.max_health)
             result.status = AAMOD_COMMAND_UNAVAILABLE;
         else if(record.request.kind==AAMOD_COMMAND_REFILL_MANA) {
-            if(!mana || state->scene_index!=268 || state->players[1].present)result.status=AAMOD_COMMAND_UNAVAILABLE;
+            if(!mana || !gameplay_scene(*state) || state->players[1].present)result.status=AAMOD_COMMAND_UNAVAILABLE;
             else result.status=mana(frame,0,record.request.amount,&result.before,&result.after);
         } else {
             result.before = player.health;

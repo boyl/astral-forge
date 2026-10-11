@@ -43,6 +43,8 @@ def audit(manifest_path):
                 license_path='licenses/nlohmann-json/LICENSE.MIT' if kind=='runtime' else 'src/vendor/nlohmann/LICENSE.MIT'
                 if license_path not in names:raise ValueError('缺少 JSON 依赖完整许可')
                 if digest(z.read(license_path))!='46A65CFFD1EA955132D95A8DD921640714A8D6B537D2E4E482D31145AE95B603':raise ValueError('JSON 依赖许可与审核基线不符')
+                bd_license='licenses/bd_compatibility/LICENSE.MIT' if kind=='runtime' else 'src/vendor/bd_compatibility/LICENSE.MIT'
+                if bd_license not in names:raise ValueError('缺少 BD 兼容规格完整许可')
             if kind=='runtime':
                 build=json.loads(z.read('out/build.json'))
                 for name in ('aamod_core.dll','winmm.dll','d3d11.dll','sdk-host.exe'):

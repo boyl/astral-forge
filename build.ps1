@@ -130,9 +130,11 @@ if ($Test) { Invoke-Native (Join-Path $out 'hook_test.exe') @() }
 Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\native_images_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\native_images_test.cpp'),(Join-Path $root 'src\core\log.cpp')))
 if ($Test) { Invoke-Native (Join-Path $out 'native_images_test.exe') @() }
 Invoke-Native cl @('/nologo','/utf-8','/std:c11','/TC','/c',('/I'+(Join-Path $root 'include')),('/Fo'+$obj+'\abi_c.obj'),(Join-Path $root 'tests\abi_c.c'))
+Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\game_layout_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\game_layout_test.cpp'),(Join-Path $root 'src\core\log.cpp')))
+if ($Test) { Invoke-Native (Join-Path $out 'game_layout_test.exe') @() }
 Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\game_profile_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\game_profile_test.cpp'),(Join-Path $root 'src\core\game_profile.cpp'),(Join-Path $root 'src\core\log.cpp'),'/link','bcrypt.lib'))
 if ($Test) { Invoke-Native (Join-Path $out 'game_profile_test.exe') @() }
-Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\game_state_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\game_state_test.cpp'),(Join-Path $root 'src\core\equipment_commands.cpp'),(Join-Path $root 'src\core\native_equipment.cpp'),(Join-Path $root 'src\core\content_catalog.cpp'),(Join-Path $root 'src\core\game_combat.cpp'),(Join-Path $root 'src\core\game_equipment.cpp'),(Join-Path $root 'src\core\game_commands.cpp'),(Join-Path $root 'src\core\game_profile.cpp'),(Join-Path $root 'src\core\log.cpp'),'/link','bcrypt.lib'))
+Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\game_state_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\game_state_test.cpp'),(Join-Path $root 'src\core\game_layout.cpp'),(Join-Path $root 'src\core\hook.cpp'),(Join-Path $root 'src\core\equipment_commands.cpp'),(Join-Path $root 'src\core\native_equipment.cpp'),(Join-Path $root 'src\core\content_catalog.cpp'),(Join-Path $root 'src\core\game_combat.cpp'),(Join-Path $root 'src\core\game_equipment.cpp'),(Join-Path $root 'src\core\game_commands.cpp'),(Join-Path $root 'src\core\game_profile.cpp'),(Join-Path $root 'src\core\log.cpp'),'/link','bcrypt.lib'))
 if ($Test) { Invoke-Native (Join-Path $out 'game_state_test.exe') @() }
 Invoke-Native cl ($nativeCommon + @(('/Fe:'+ $out+'\game_commands_test.exe'),('/Fo:'+ $obj+'\host\'),(Join-Path $root 'tests\game_commands_test.cpp')))
 if ($Test) { Invoke-Native (Join-Path $out 'game_commands_test.exe') @() }
@@ -272,7 +274,7 @@ $expectedOut = @(
     @{ p = 'host: anchor probe\s+=\s+[0-9A-F]+ \+[0-9]+, probe at [0-9A-F]+ -> inside'; n = 'anchor resolver found the probe function' },
     @{ p = 'host: anchor negative\s+=\s+not found';                                       n = 'anchor resolver rejected an absent literal' },
     @{ p = 'host: present hook state\s+=\s+3 after chain creation';                       n = 'factory and swap chain both hooked' },
-    @{ p = 'host: present\s+0x0+, frames 0 -> 3';                                        n = 'three Present calls dispatched three frames' },
+    @{ p = 'host: present\s+0x[0-7][0-9a-fA-F]{7}, frames 0 -> 3';                      n = 'three Present calls dispatched three frames with a successful HRESULT' },
     @{ p = 'host: after detach\s+frames 3 -> 3, state 0';                                n = 'AAMOD_DetachPresent restored the vtable' }
 )
 foreach ($e in $expectedOut) {

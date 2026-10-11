@@ -1,0 +1,637 @@
+{
+  "gameVersion": "2.7.3.0",
+  "steamBuild": 25849970,
+  "gameSha256": "F46D2391E2725D68E11EA842E0E610B8AB0F690A3A8ACC59B4A11A1180DB2CF2",
+  "coreSha256": "F2F3A9C71D62B25F999A48DCD3899D2BAA569F9090287DF14EF174D6EBC70463",
+  "publicABI": 1,
+  "apiBytes": 328,
+  "realGameProofs": {
+    "victory": {
+      "file": "update-user-victory-proof24-20261011.json",
+      "sha256": "a6393aeddbf10aea9313c20464ab8fb227816d4829052b6bebd009293a4506e1",
+      "result": {
+        "status": "native-victory-observed",
+        "privateBossHealthFixture": true,
+        "writes": [
+          {
+            "address": "0x1f28a0e5790",
+            "before": 62444.700000000004,
+            "after": 1,
+            "maximum": 63000
+          },
+          {
+            "address": "0x1f28a0e5790",
+            "before": 63000,
+            "after": 1,
+            "maximum": 63000
+          }
+        ],
+        "inputs": [
+          {
+            "key": 68,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 68,
+            "hold": 2.796032610215118,
+            "scene": "layout_game"
+          },
+          {
+            "key": 68,
+            "hold": 0.8318944825845414,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 0.2,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_game"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 67,
+            "hold": 0.2,
+            "scene": "layout_credits"
+          },
+          {
+            "key": 82,
+            "hold": 3,
+            "scene": "layout_credits"
+          }
+        ],
+        "pid": 22532,
+        "independentBefore": 0,
+        "normalHitFieldVerification": {
+          "before": 63000,
+          "after": 62444.700000000004,
+          "offset": "0x9c8"
+        },
+        "events": [
+          [
+            "3",
+            "28656",
+            "47"
+          ]
+        ],
+        "independentAfter": 1
+      }
+    },
+    "defeat": {
+      "file": "update-user-death-proof15-20261011.json",
+      "sha256": "cc6d519858c82a00a3cc1748aa6984b294323ced2d85cb877d3893cf9961dc96",
+      "result": {
+        "status": "native-defeat-observed",
+        "fixture": "normal-enemy-no-heal",
+        "pid": 18200,
+        "navigation": {
+          "code": 0,
+          "stdout": "{\"status\": \"damage-observed\", \"pid\": 18200}\n",
+          "stderr": ""
+        },
+        "events": [
+          [
+            "19",
+            "39588",
+            "47"
+          ]
+        ],
+        "lastState": 0
+      }
+    },
+    "abandon": {
+      "file": "update-user-abandon-proof28-20261011.json",
+      "sha256": "c5f0f31de2b53da4ad528f20066ae4c67d51e87c92f980eb2adfcee4856be41c",
+      "result": {
+        "status": "passed",
+        "pid": 34884,
+        "events": [
+          [
+            "1",
+            "38452",
+            "47"
+          ]
+        ],
+        "pauseDidNotEndRun": true,
+        "confirmationRequired": true,
+        "runSaveCleared": true,
+        "sceneAfter": "layout_mainMenu"
+      }
+    },
+    "pickup": {
+      "file": "update-user-pickup-proof25-20261011.json",
+      "sha256": "6ada88343d73b73c4e0c0bbb997118d27a8e26b57577653f4e3de00c30128662",
+      "result": {
+        "status": "pickup-and-refill-observed",
+        "steps": [
+          {
+            "target": {
+              "name": "obj_enemy_w1_4_blackSeed",
+              "metadata": "0xc9e9890",
+              "bytes": [
+                48,
+                111,
+                98,
+                106,
+                95,
+                101,
+                110,
+                101,
+                109,
+                121,
+                95,
+                119,
+                49,
+                95,
+                52,
+                95,
+                98,
+                108,
+                97,
+                99,
+                107,
+                83,
+                101,
+                101
+              ],
+              "flags": 33285,
+              "x": 3240.558531441842,
+              "y": 5044.544530194253
+            },
+            "player": {
+              "name": "obj_player_P1_collider",
+              "metadata": "0xca1b3f0",
+              "bytes": [
+                44,
+                111,
+                98,
+                106,
+                95,
+                112,
+                108,
+                97,
+                121,
+                101,
+                114,
+                95,
+                80,
+                49,
+                95,
+                99,
+                111,
+                108,
+                108,
+                105,
+                100,
+                101,
+                114,
+                0
+              ],
+              "flags": 33284,
+              "x": 3277.6806688155048,
+              "y": 5056.016150325537
+            },
+            "mana": 2
+          },
+          {
+            "target": {
+              "name": "obj_enemy_w1_4_blackSeed",
+              "metadata": "0xc9e9890",
+              "bytes": [
+                48,
+                111,
+                98,
+                106,
+                95,
+                101,
+                110,
+                101,
+                109,
+                121,
+                95,
+                119,
+                49,
+                95,
+                52,
+                95,
+                98,
+                108,
+                97,
+                99,
+                107,
+                83,
+                101,
+                101
+              ],
+              "flags": 33285,
+              "x": 3332.9624915515506,
+              "y": 5042.077838783588
+            },
+            "player": {
+              "name": "obj_player_P1_collider",
+              "metadata": "0xca1b3f0",
+              "bytes": [
+                44,
+                111,
+                98,
+                106,
+                95,
+                112,
+                108,
+                97,
+                121,
+                101,
+                114,
+                95,
+                80,
+                49,
+                95,
+                99,
+                111,
+                108,
+                108,
+                105,
+                100,
+                101,
+                114,
+                0
+              ],
+              "flags": 33284,
+              "x": 3309.6139383087866,
+              "y": 5056.016150325537
+            },
+            "mana": 1
+          }
+        ],
+        "pid": 32700,
+        "events": [
+          [
+            "8",
+            "2146340",
+            "120.000",
+            "121.000",
+            "1.000"
+          ]
+        ],
+        "responses": [
+          [
+            "8",
+            "1.000",
+            "2.000",
+            "23276"
+          ]
+        ]
+      }
+    },
+    "checkpoint1": {
+      "file": "update-user-checkpoint-proof1-20261011.json",
+      "sha256": "19a2e5876b98dd0757546ee662bba96bda7d0983b111051bd798d022c6074c87",
+      "result": {
+        "status": "passed",
+        "pid": 21236,
+        "phase": [
+          "dispatched",
+          " stage=1"
+        ],
+        "aura": [],
+        "sdkRecords": [
+          "checkpoint_fixture: restart stage=0 expected=0 actual=0",
+          "checkpoint_fixture: status=1 checkpoint=2 before=0 after=246 thread=38732",
+          "checkpoint_fixture: phase=dispatched stage=1"
+        ]
+      }
+    },
+    "checkpoint2": {
+      "file": "update-user-checkpoint-proof2-20261011.json",
+      "sha256": "5e74bdf6029d95acc408e0e1d4eec9a9294c436e2363b16ee0fdcf70a17531d6",
+      "result": {
+        "status": "passed",
+        "pid": 34740,
+        "phase": [
+          "dispatched",
+          " stage=2"
+        ],
+        "aura": [],
+        "sdkRecords": [
+          "checkpoint_fixture: restart stage=1 expected=246 actual=246",
+          "checkpoint_fixture: status=1 checkpoint=2 before=246 after=0 thread=40228",
+          "checkpoint_fixture: phase=dispatched stage=2"
+        ]
+      }
+    },
+    "checkpoint3": {
+      "file": "update-user-checkpoint-proof3-20261011.json",
+      "sha256": "0fcc7f98b5787e0363f35ddc789be24d1aadccbb785bc11b42392640f4906302",
+      "result": {
+        "status": "passed",
+        "pid": 40312,
+        "phase": [
+          "verified",
+          " applied-and-restored across three processes"
+        ],
+        "aura": [],
+        "sdkRecords": [
+          "checkpoint_fixture: restart stage=2 expected=0 actual=0",
+          "checkpoint_fixture: phase=verified applied-and-restored across three processes"
+        ]
+      }
+    }
+  },
+  "originalSaves": {
+    "files": 4,
+    "unchanged": true
+  }
+}

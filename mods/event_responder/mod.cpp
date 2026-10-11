@@ -1,3 +1,4 @@
+#include <cstring>
 #include "aamod/aamod.h"
 #include <windows.h>
 static const AAModAPI* api;
@@ -27,7 +28,7 @@ static DWORD WINAPI run(void*) {
             AAModGameState state={};error=api->game_state(&state,sizeof(state));
             if(error){AAMOD_LOGE(api,"event_responder: state error=%u",error);return 1;}
             const auto& player=state.players[0];
-            if(state.status!=AAMOD_STATE_READY||state.scene_index!=268||!player.present||state.players[1].present||!(player.valid_fields&AAMOD_PLAYER_HEALTH)||player.health<=0)continue;
+            if(state.status!=AAMOD_STATE_READY||std::strcmp(state.scene_name,"layout_game")!=0||!player.present||state.players[1].present||!(player.valid_fields&AAMOD_PLAYER_HEALTH)||player.health<=0)continue;
             AAModCommand command={sizeof(command),kind,state.scene_epoch,0,0,kind==AAMOD_COMMAND_HEAL?event.amount:1.0};
             error=api->command_submit(api->command_owner,&command,sizeof(command),&pending);
             if(error){AAMOD_LOGW(api,"event_responder: event=%llu submit error=%u",(unsigned long long)event.id,error);continue;}

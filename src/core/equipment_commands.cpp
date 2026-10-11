@@ -1,3 +1,4 @@
+#include "game_scene.h"
 #include "equipment_commands.h"
 #include "game_commands.h"
 #include "content_catalog.h"
@@ -50,10 +51,10 @@ bool equipment_process(void* context,const AAModGameState& state,EquipmentApply 
             if(applied_this_update)continue;
             result.update_thread_id=state.update_thread_id;
             if(record.command.scene_epoch!=state.scene_epoch)result.status=AAMOD_EQUIPMENT_STALE;
-            else if(state.status!=AAMOD_STATE_READY||state.scene_index!=268||!state.players[0].present||state.players[1].present||state.players[0].health<=0)result.status=AAMOD_EQUIPMENT_UNAVAILABLE;
+            else if(state.status!=AAMOD_STATE_READY||!gameplay_scene(state)||!state.players[0].present||state.players[1].present||state.players[0].health<=0)result.status=AAMOD_EQUIPMENT_UNAVAILABLE;
             else {apply(context,record.command,result);applied_this_update=true;}
         } else if(result.checkpoint_status==AAMOD_CHECKPOINT_PENDING) {
-            if(state.status!=AAMOD_STATE_READY||state.scene_index!=268||!state.players[0].present||state.players[1].present)result.checkpoint_status=AAMOD_CHECKPOINT_FAILED;
+            if(state.status!=AAMOD_STATE_READY||!gameplay_scene(state)||!state.players[0].present||state.players[1].present)result.checkpoint_status=AAMOD_CHECKPOINT_FAILED;
             else sync(context,record.command,result);
         }
     }ReleaseSRWLockExclusive(&equipment_lock);return applied_this_update;

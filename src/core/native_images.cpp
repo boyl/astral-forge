@@ -1,6 +1,6 @@
 #include "native_images.h"
 #include "resources.h"
-#include "game_profile.h"
+#include "game_layout.h"
 #include "hook.h"
 #include "log.h"
 #include <windows.h>
@@ -49,7 +49,7 @@ bool snapshot(void* object,AAModNativeImageInfo* info) {
     } __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH){return false;}
 }
 void* cached_object(uint32_t id) {
-    __try {return ((void**)(base+0xa314390))[id];}
+    __try {return ((void**)(base+game_layout.image_cache))[id];}
     __except(GetExceptionCode()==EXCEPTION_ACCESS_VIOLATION?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH){return nullptr;}
 }
 void observe_current(void* object) {
@@ -69,7 +69,7 @@ bool apply_pixels(void* object,Replacement& r) {
     memcpy(pixels,r.pixels.data(),r.pixels.size());
     premultiply_native(pixels,r.width,r.height);
     // Native external-image decoder uses the same backend orientation flag.
-    if(*(uint32_t*)(base+0xa314378))flip_native(pixels,r.width,r.height,4);
+    if(*(uint32_t*)(base+game_layout.image_orientation))flip_native(pixels,r.width,r.height,4);
     auto p=(unsigned char*)object;
     if(!r.saved){memcpy(r.original,p,sizeof(r.original));r.saved=true;}
     release_original(object);
@@ -96,7 +96,8 @@ void upload(void* object) {
         auto entry=replacements.find(handle);auto& r=entry->second;
         if(r.state!=AAMOD_NATIVE_PENDING&&r.state!=AAMOD_NATIVE_RESTORE_PENDING)continue;
         if(r.state==AAMOD_NATIVE_PENDING&&!active_owners.count(r.owner))continue;
-        void* target=cached_object(id);if(!target)continue;
+        void* target=cached_object(id);AAModNativeImageInfo cached={};
+        if(!target||!snapshot(target,&cached)||cached.image_id!=id)continue;
         if(r.state==AAMOD_NATIVE_PENDING){apply_pixels(target,r);continue;}
         if(r.saved){
             original_pixels(target,r);upload_original(target);observe_current(target);
@@ -129,20 +130,19 @@ void upload(void* object) {
 }
 bool native_images_available(){Guard guard;return available;}
 void native_images_initialize(){
-    AAModGameInfo identity={};game_profile_query(&identity,sizeof(identity));
-    if(identity.identity_status!=AAMOD_GAME_IDENTITY_MATCH)return;
+    if(!game_layout.images){AAMOD_INFO("native image: required code/structure anchors unavailable");return;}
     base=(unsigned char*)GetModuleHandleW(nullptr);
     const uint8_t head[]={0x40,0x53,0x48,0x83,0xec,0x20,0x83,0x79,0x28,0x00};
-    if(memcmp(base+0x623b30,head,sizeof(head))){AAMOD_ERROR("native image: upload signature mismatch");return;}
-    load_original=(void(*)(void*))(base+0x616ed0);release_original=(void(*)(void*))(base+0x616570);
-    allocate_native=(void*(*)(size_t))(base+0x583ce24);premultiply_native=(void(*)(void*,int,int))(base+0x618130);
-    flip_native=(void(*)(void*,int,int,int))(base+0x623630);
-    available=hook::install_near(base+0x623b30,(void*)upload,(void**)&upload_original);
-    if(available)AAMOD_INFO("native image: exact-profile upload adapter ready");
+    if(memcmp(base+game_layout.image_upload,head,sizeof(head))){AAMOD_ERROR("native image: upload signature mismatch");return;}
+    load_original=(void(*)(void*))(base+game_layout.image_load);release_original=(void(*)(void*))(base+game_layout.image_release);
+    allocate_native=(void*(*)(size_t))(base+game_layout.image_allocate);premultiply_native=(void(*)(void*,int,int))(base+game_layout.image_premultiply);
+    flip_native=(void(*)(void*,int,int,int))(base+game_layout.image_flip);
+    available=hook::install_near(base+game_layout.image_upload,(void*)upload,(void**)&upload_original);
+    if(available)AAMOD_INFO("native image: resolved upload adapter ready");
 }
 bool native_images_shutdown(){
     Guard guard;
-    if(available&&!hook::remove(base+0x623b30))return false;
+    if(available&&!hook::remove(base+game_layout.image_upload))return false;
     available=false;
     // ShutdownCore contract requires the renderer to have stopped. Native
     // cached textures remain game-owned until game teardown; no thread-unsafe GL calls.

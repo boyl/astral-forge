@@ -1,3 +1,4 @@
+#include <cstring>
 #undef NDEBUG
 #include <windows.h>
 #include <cassert>
@@ -7,8 +8,10 @@
 #include <intrin.h>
 #include "../src/core/gameplay_events.h"
 #include "../src/core/game_profile.h"
+#include "../src/core/game_layout.h"
 #include "../src/core/game_state.h"
 #include "../src/core/hook.h"
+namespace aamod {GameLayout game_layout;}
 static unsigned char* image;static unsigned char* frame;
 static double loss=20;static size_t caller_rva=0x311fbf6;static unsigned damage_calls;static bool multiplayer,ready=true;
 static void original_run(void* value){*(double*)((unsigned char*)value+0x1c4768)+=1;}
@@ -22,8 +25,9 @@ static void* fake_return_address(){return image+caller_rva;}
 static HMODULE fake_module(LPCWSTR){return (HMODULE)image;}
 static DWORD fake_environment(LPCSTR,LPSTR text,DWORD){strcpy(text,"1");return 1;}
 namespace aamod {
+int native_player_index(const void* value){return value==image+0xc407b80?0:-1;}
 uint32_t game_profile_query(AAModGameInfo* info,uint32_t){*info={};info->identity_status=AAMOD_GAME_IDENTITY_MATCH;return 0;}
-uint32_t game_state_query(AAModGameState* state,uint32_t){*state={};state->status=ready?AAMOD_STATE_READY:AAMOD_STATE_WAITING;state->scene_index=268;state->players[0].present=1;state->players[1].present=multiplayer;return 0;}
+uint32_t game_state_query(AAModGameState* state,uint32_t){*state={};state->status=ready?AAMOD_STATE_READY:AAMOD_STATE_WAITING;state->scene_index=268;std::strcpy(state->scene_name,"layout_game");state->players[0].present=1;state->players[1].present=multiplayer;return 0;}
 namespace hook {
 bool install(void* target,void*,void** original,size_t){if(target==image+0x31ddff0)*original=(void*)original_run;else if(target==image+0x14b8a20)*original=(void*)original_hit;else if(target==image+0x35057b0)*original=(void*)original_win;else if(target==image+0x15a8b80)*original=(void*)original_abandoned;else if(target==image+0x3505770)*original=(void*)original_end;else if(target==image+0x200ae00)*original=(void*)original_collect;else return false;return true;}
 bool remove(void*){return true;}
@@ -38,6 +42,7 @@ bool remove(void*){return true;}
 #undef GetEnvironmentVariableA
 int main() {
     using namespace aamod;
+    game_layout.defeat_entry=0x3505770;game_layout.defeat_site=0x1dfd69f;game_layout.victory_entry=0x35057b0;game_layout.victory_site=0x13680bc;game_layout.victory_flag=0x1c14c2;game_layout.damage_entry=0x14b8a20;game_layout.damage_site=0x311fbf1;game_layout.pickup_entry=0x200ae00;game_layout.pickup_site=0x200addd;game_layout.abandon_entry=0x15a8b80;game_layout.abandon_site=0x1d5ed9a;game_layout.health[0]=0x1c4ff0;game_layout.crystals=0x1c3f30;game_layout.events=true;game_layout.run_start=0x31ddff0;game_layout.run=0x1c4768;
     image=(unsigned char*)VirtualAlloc(nullptr,0x3510000,MEM_RESERVE,PAGE_READWRITE);assert(image);
     assert(VirtualAlloc(image+0x31dd000,0x1000,MEM_COMMIT,PAGE_READWRITE));assert(VirtualAlloc(image+0x14b8000,0x1000,MEM_COMMIT,PAGE_READWRITE));
     const unsigned char run_prefix[]={0x48,0x8b,0xc4,0x56,0x48,0x81,0xec,0xb0,0,0,0,0x0f,0x29,0x78,0xd8};memcpy(image+0x31ddff0,run_prefix,sizeof(run_prefix));
@@ -104,4 +109,3 @@ int main() {
     VirtualFree(frame,0,MEM_RELEASE);VirtualFree(image,0,MEM_RELEASE);
     puts("native callbacks: frame ABI, source/delta fields, heal/P2/multiplayer/not-ready/NaN/dead exclusion and stopped forwarding passed");
 }
-

@@ -1,3 +1,4 @@
+#include <cstring>
 #include "aamod/aamod.h"
 #include <windows.h>
 #include <cstdarg>
@@ -34,10 +35,10 @@ static uint32_t events_query(uint64_t cursor,AAModGameplayEvent* values,uint32_t
     return 0;
 }
 static uint32_t state_query(AAModGameState* value,uint32_t) {
-    *value={};value->status=2;value->scene_index=268;value->scene_epoch=17;value->players[0].present=1;value->players[0].health=80;value->players[0].valid_fields=AAMOD_PLAYER_HEALTH;
+    *value={};value->status=2;value->scene_index=268;std::strcpy(value->scene_name,"layout_game");value->scene_epoch=17;value->players[0].present=1;value->players[0].health=80;value->players[0].valid_fields=AAMOD_PLAYER_HEALTH;
     if(scenario==4)value->players[0].health=0;
     if(scenario==5)value->players[1].present=1;
-    if(scenario==6)value->scene_index=267;
+    if(scenario==6){value->scene_index=267;std::strcpy(value->scene_name,"layout_mainMenu");}
     if(scenario==7)value->status=AAMOD_STATE_WAITING;
     return 0;
 }

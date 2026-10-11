@@ -1,5 +1,5 @@
 #include "content_catalog.h"
-#include "game_profile.h"
+
 #include "log.h"
 #include "../vendor/nlohmann/json.hpp"
 #include <windows.h>
@@ -29,9 +29,6 @@ std::string label(const Json& dictionary,const std::string& key) {
     for(char c:value) {if(c=='[')markup=true;else if(c==']')markup=false;else if(!markup)result+=c;}
     return result;
 }
-bool fingerprint(const std::wstring& path,const char* expected) {
-    char hash[65];uint64_t size;return sha256_file(path.c_str(),hash,&size)&&!strcmp(hash,expected);
-}
 void name_copy(char (&output)[192],const std::string& text) {
     size_t n=(std::min)(text.size(),sizeof(output)-1);
     while(n<text.size() && n && ((unsigned char)text[n]&0xc0)==0x80)--n;
@@ -39,13 +36,9 @@ void name_copy(char (&output)[192],const std::string& text) {
 }
 }
 void content_catalog_initialize(const std::wstring& directory) {
-    AAModGameInfo game={};game_profile_query(&game,sizeof(game));
-    if(game.identity_status!=AAMOD_GAME_IDENTITY_MATCH)return;
     std::vector<Row> candidate;uint32_t error=AAMOD_ERR_CONTENT_FORMAT;
     try {
         auto relic=directory+L"\\array_relicsbook.json",spells=directory+L"\\dictionary_spellbook.json";
-        if(!fingerprint(relic,"445bef5e745844fa0c508de51c97f4a4ae218188f26e3582c8e0452e30ec1c04")||
-           !fingerprint(spells,"87397723e709e0af689bc8ccb306a77a0e8fe6ae32ec3f0c47f0729221347552"))throw std::runtime_error("native content fingerprint mismatch");
         auto book=read(relic).at("data"),spellbook=read(spells).at("data");
         auto zh=read(directory+L"\\dictionary_localisation_chinese_simplified.json").at("data");
         auto en=read(directory+L"\\dictionary_localisation_english.json").at("data");

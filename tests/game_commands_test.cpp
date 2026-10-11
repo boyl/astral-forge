@@ -1,3 +1,4 @@
+#include <cstring>
 #include "../src/core/game_commands.cpp"
 #include <cstdio>
 #include <limits>
@@ -11,7 +12,7 @@ int main() {
     using namespace aamod;
     auto owner = game_commands_owner(), other = game_commands_owner();
     AAModCommand command = {sizeof(command), AAMOD_COMMAND_HEAL, 4, 0, 0, 25};
-    AAModGameState state = {}; state.status = AAMOD_STATE_READY; state.scene_index = 268;
+    AAModGameState state = {}; state.status = AAMOD_STATE_READY; state.scene_index = 268;std::strcpy(state.scene_name,"layout_game");
     state.scene_epoch = 4; state.update_thread_id = GetCurrentThreadId();
     state.players[0] = {1,AAMOD_PLAYER_HEALTH,0,0,50,100};
     state.players[1] = {1,AAMOD_PLAYER_HEALTH,0,0,10,200};

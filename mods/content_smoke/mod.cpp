@@ -3,6 +3,12 @@
 #include <cstdio>
 static const AAModAPI* api;static HANDLE stop,worker;
 static bool waiting(DWORD ms){return WaitForSingleObject(stop,ms)==WAIT_TIMEOUT;}
+static bool supported_spell(uint32_t id) {
+    AAModCatalogEntry entries[128]={};uint32_t count=0,total=0;
+    if(api->content_catalog(AAMOD_CONTENT_SPELL,"en",0,entries,128,sizeof(entries[0]),&count,&total)||total>128)return false;
+    for(uint32_t i=0;i<count;++i)if(entries[i].id==id)return true;
+    return false;
+}
 static bool equipment(uint32_t kind,uint32_t target,uint32_t expected,uint64_t epoch) {
     AAModEquipmentCommand request={sizeof(request),kind,epoch,0,target,expected,0};uint64_t id;
     uint32_t error=api->equipment_submit(api->command_owner,&request,sizeof(request),&id);
@@ -26,9 +32,13 @@ static bool command(uint32_t kind,double amount,uint64_t epoch) {
 }
 static DWORD WINAPI run(void*) {
     AAModEquipment original={};AAModGameState state={};
+    bool reported=false;
     while(waiting(100)) {
         if(api->equipment(&original,sizeof(original))||api->game_state(&state,sizeof(state)))return 1;
-        if(original.valid&&state.status==AAMOD_STATE_READY&&original.scene_epoch==state.scene_epoch&&state.players[0].health>0)break;
+        if(original.valid&&state.status==AAMOD_STATE_READY&&original.scene_epoch==state.scene_epoch&&state.players[0].health>0) {
+            if(supported_spell(original.spells[0]))break;
+            if(!reported){AAMOD_LOGW(api,"content_smoke: waiting for supported original spell; id=%u cannot be restored through this catalog",original.spells[0]);reported=true;}
+        }
     }
     if(WaitForSingleObject(stop,0)==WAIT_OBJECT_0)return 0;
     char preset[256];int length=std::snprintf(preset,sizeof(preset),"{\"version\":1,\"auras\":[%u,%u,%u,%u,%u],\"spells\":[%u,%u,%u,%u]}",original.auras[0],original.auras[1],original.auras[2],original.auras[3],original.auras[4],original.spells[0],original.spells[1],original.spells[2],original.spells[3]);
@@ -49,8 +59,9 @@ static DWORD WINAPI run(void*) {
     if(!waiting(3000))return 0;
     if(!equipment(AAMOD_CONTENT_AURA,original.auras[0],246,epoch))return 1;
     AAMOD_LOGI(api,"content_smoke: phase=aura-restored");
-    if(!equipment(AAMOD_CONTENT_SPELL,31,original.spells[0],epoch))return 1;
-    AAMOD_LOGI(api,"content_smoke: phase=spell-replaced id=31 gambits=cleared");
+    uint32_t replacement=original.spells[0]==31?32:31;
+    if(!equipment(AAMOD_CONTENT_SPELL,replacement,original.spells[0],epoch))return 1;
+    AAMOD_LOGI(api,"content_smoke: phase=spell-replaced id=%u gambits=cleared",replacement);
     AAModCombatState combat={};
     for(unsigned i=0;i<1200&&waiting(50);++i) {
         if(api->combat_state(&combat,sizeof(combat)))return 1;
@@ -60,7 +71,7 @@ static DWORD WINAPI run(void*) {
     if(!waiting(2000)||!command(AAMOD_COMMAND_REFILL_MANA,combat.max_mana,combat.scene_epoch))return 1;
     if(!waiting(3000))return 0;
     AAModEquipment current={};if(api->equipment(&current,sizeof(current))||!current.valid)return 1;
-    if(!equipment(AAMOD_CONTENT_SPELL,original.spells[0],31,current.scene_epoch))return 1;
+    if(!equipment(AAMOD_CONTENT_SPELL,original.spells[0],replacement,current.scene_epoch))return 1;
     AAMOD_LOGI(api,"content_smoke: phase=completed aura/spell ids restored; selected spell gambits remain cleared by documented policy");return 0;
 }
 AAMOD_EXPORT uint32_t AAMOD_Init(const AAModAPI* input,uint32_t size) {

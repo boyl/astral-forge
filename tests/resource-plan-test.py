@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 import zlib
 from pathlib import Path
+from native_image_pe_fixture import image_pe
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('resource_plan', ROOT / 'tools/resource-plan.py')
@@ -152,20 +153,15 @@ class ResourcePlanContracts(unittest.TestCase):
 
     def test_cli_prepare_verify_and_existing_output(self):
         exe = self.directory / 'Astral Ascent.exe'
-        exe.write_bytes(b'synthetic-profile')
+        exe.write_bytes(image_pe())
         request_path = self.directory / 'request.json'
         request_path.write_text(json.dumps(self.request), encoding='utf-8')
         output = self.directory / 'plan.json'
-        real_hash = plan_tool.file_hash
-
-        def synthetic_profile_hash(path):
-            return plan_tool.bank.PROFILE_SHA if path == exe else real_hash(path)
-
         def run(action, input_path, destination=None):
             arguments = ['resource-plan.py', action, str(self.directory), str(self.mod), str(input_path)]
             if destination is not None:
                 arguments += ['--output', str(destination)]
-            with patch.object(sys, 'argv', arguments), patch.object(plan_tool, 'file_hash', synthetic_profile_hash), \
+            with patch.object(sys, 'argv', arguments), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 plan_tool.main()
 

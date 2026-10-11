@@ -17,6 +17,7 @@ static void upload(void* object){auto p=(uint8_t*)object;if(*(uint32_t*)(p+0x28)
 static void premultiply(void* pixels,int width,int height){auto p=(uint8_t*)pixels;for(int i=0;i<width*height;++i,p+=4)for(int c=0;c<3;++c)p[c]=uint8_t((unsigned(p[c])*(unsigned(p[3])+1))>>8);}
 static void flip(void* pixels,int width,int height,int stride){auto p=(uint8_t*)pixels;for(int y=0;y<height/2;++y)for(int x=0;x<width*stride;++x)std::swap(p[y*width*stride+x],p[(height-1-y)*width*stride+x]);}
 namespace aamod {
+GameLayout game_layout;
 uint32_t game_profile_query(AAModGameInfo* info,uint32_t){*info={};return 0;}
 uint32_t resources_image_copy(uint64_t owner,const char* path,std::vector<uint8_t>& pixels,uint32_t& width,uint32_t& height){
     if(owner<1||owner>4)return AAMOD_ERR_RESOURCE_HANDLE;
@@ -28,7 +29,7 @@ uint32_t resources_image_copy(uint64_t owner,const char* path,std::vector<uint8_
 int main(){
     using namespace aamod;
     struct Cache {uint8_t padding[24];void* entries[71870];};static Cache cache={};
-    base=(unsigned char*)cache.entries-0xa314390;
+    base=(unsigned char*)cache.entries-0xa314390;game_layout.image_cache=0xa314390;game_layout.image_orientation=0xa314378;
     unsigned char object[0x48]={};*(uint32_t*)object=7;*(uint16_t*)(object+0x18)=2;*(uint16_t*)(object+0x1a)=2;
     *(uint16_t*)(object+0x1c)=4;*(uint16_t*)(object+0x1e)=4;*(uint16_t*)(object+0x20)=1;*(uint16_t*)(object+0x22)=1;*(uint16_t*)(object+0x24)=1;*(uint16_t*)(object+0x26)=1;
     *(uint32_t*)(object+0x28)=55;*(uint32_t*)(object+0x40)=2;cache.entries[7]=object;

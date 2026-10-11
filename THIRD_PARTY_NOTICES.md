@@ -12,3 +12,7 @@ research、引擎源码快照和 astral-ascent-re 是原工程中的参考资料
 原生目录和检查点 JSON 处理使用 nlohmann/json v3.12.0（MIT），仅作为核心内部实现，不向公共 ABI 暴露其类型。来源：[官方版本](https://github.com/nlohmann/json/releases/tag/v3.12.0)。固定头文件 SHA-256：`aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63`，与上游公布值核对一致。
 
 头文件与完整许可保存在 `src/vendor/nlohmann/json.hpp`、`src/vendor/nlohmann/LICENSE.MIT`。游戏目录、文字与 JSON 内容仍由运行时读取用户已安装副本，不加入分发包。
+
+## BD 兼容定位规格
+
+私有 `game_layout_patterns.h` 的部分入口与字段定位规格参考本机 `astral-ascent-bd-mod` 的 MIT 兼容规格。原署名为 `Copyright (c) 2026 Astral Ascent Build Selector contributors`，完整许可保存在 `src/vendor/bd_compatibility/LICENSE.MIT`。仅复用定位规格，不链接 BD DLL，也不要求玩家安装 BD Mod。图片定位规格来自本项目已有分析证据。

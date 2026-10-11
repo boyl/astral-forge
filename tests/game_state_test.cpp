@@ -26,6 +26,9 @@ static DWORD WINAPI reader(void*) {
 int main() {
     using namespace aamod;
     base = (unsigned char*)UINT64_C(0x100000000);
+    game_layout.health[0]=0x1c4ff0;game_layout.health[1]=0x1c5000;game_layout.maximum[0]=0x1c4ff8;game_layout.maximum[1]=0x1c5008;
+    unsigned char player_metadata[2][32]={{44},{44}};
+    memcpy(player_metadata[0]+1,"obj_player_P1_collider",22);memcpy(player_metadata[1]+1,"obj_player_P2_collider",22);
     std::vector<unsigned char> frame(0x1c5010), data(0x50), layers(84 * 0x253c0), object(0xe0);
     auto f = frame.data(), d = data.data(), l = layers.data(), o = object.data();
     put(f, 0x28, int32_t(282)); put(f, 0x30, d); put(f, 0x70, l); put(f, 0x78, uint64_t(84));
@@ -35,7 +38,7 @@ int main() {
     CHECK(sample(f, &s)); CHECK(s.scene_index == 282 && !s.players[0].present && s.scene_epoch == 1);
     // Player in layer 83 catches a previously incorrect 32-layer cap.
     auto last = l + 83 * 0x253c0;
-    put(last, 0x68, o); put(o, 0x58, last + 0x10); put(o, 8, base + 0xc407b80);
+    put(last, 0x68, o); put(o, 0x58, last + 0x10); put(o, 8, player_metadata[0]);
     put(o, 0x10, double(123.5)); put(o, 0x18, double(-12));
     put(f, 0x1c4ff0, double(173)); put(f, 0x1c4ff8, double(231));
     put(f, 0x1c5000, double(98)); put(f, 0x1c5008, double(419));
@@ -52,9 +55,9 @@ int main() {
     CHECK(s.sequence==91&&s.update_thread_id==19&&s.sampled_at_ms==1234&&s.scene_epoch==2);
     put(f,0x1c4ff0,double(173));put(f,0x1c4ff8,double(231));
     CHECK(resample_after_equipment(f,&s)&&s.players[0].health==173&&s.players[0].max_health==231&&s.sequence==91);
-    put(o, 8, base + 0xc414200); s = {}; CHECK(sample(f, &s));
+    put(o, 8, player_metadata[1]); s = {}; CHECK(sample(f, &s));
     CHECK(!s.players[0].present && s.players[1].health == 98 && s.players[1].max_health == 419);
-    put(o, 8, base + 0xc407b80);
+    put(o, 8, player_metadata[0]);
     put(f, 0x1c4ff0, double(0)); s = {}; CHECK(sample(f, &s));
     CHECK(s.players[0].present && s.players[0].health == 0 && (s.players[0].valid_fields & AAMOD_PLAYER_HEALTH));
     put(f, 0x1c4ff8, double(0)); s = {}; CHECK(sample(f, &s));
@@ -68,7 +71,7 @@ int main() {
     put(last, 0x68, last + 0x10); s = {}; CHECK(sample(f, &s)); CHECK(!s.players[0].present);
     put(f, 0xc4, uint32_t(0)); s = {}; CHECK(sample(f, &s)); CHECK(s.scene_epoch == 3);
     // Invalid scene, oversized list and a broken ring cannot publish stale data.
-    put(f, 0x28, int32_t(293)); s = {}; CHECK(!sample(f, &s)); put(f, 0x28, int32_t(268));
+    put(f, 0x28, int32_t(1024)); s = {}; CHECK(!sample(f, &s)); put(f, 0x28, int32_t(268));
     put(f, 0x78, uint64_t(257)); CHECK(!sample(f, &s)); put(f, 0x78, uint64_t(84));
     put(last, 0x68, o); put(o, 0x58, o); CHECK(!sample(f, &s));
     put(f, 0x30, (unsigned char*)1); CHECK(!sample(f, &s));

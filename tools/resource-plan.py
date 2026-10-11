@@ -104,7 +104,7 @@ def png_info(data):
     return {'width': width, 'height': height, 'format': 'RGBA8', 'sha256': hashlib.sha256(data).hexdigest()}
 
 
-def prepare(bank_path, mod_root, request):
+def prepare(bank_path, mod_root, request, exe_hash=None):
     if (not isinstance(request, dict) or set(request) != {'schema', 'replacements'}
             or type(request['schema']) is not int or request['schema'] != SCHEMA):
         raise ValueError('替换请求 schema 无效')
@@ -128,19 +128,19 @@ def prepare(bank_path, mod_root, request):
         if (png['width'], png['height']) != (original['width'], original['height']):
             raise ValueError(f'图片 {index} 的 PNG 尺寸与原生逻辑尺寸不一致')
         bindings.append({'imageId': index, 'png': item['png'], 'original': original, 'replacement': png})
-    return {'schema': SCHEMA, 'profileSha256': bank.PROFILE_SHA,
+    return {'schema': SCHEMA, 'profileSha256': exe_hash or bank.PROFILE_SHA,
             'bankSha256': file_hash(bank_path), 'bankBytes': bank_path.stat().st_size,
             'bindings': bindings, 'runtimeValidated': False, 'nativeOverrideAvailable': False}
 
 
-def verify(bank_path, mod_root, plan):
+def verify(bank_path, mod_root, plan, exe_hash=None):
     if (not isinstance(plan, dict) or not isinstance(plan.get('bindings'), list)
             or type(plan.get('schema')) is not int or plan['schema'] != SCHEMA
             or plan.get('runtimeValidated') is not False or plan.get('nativeOverrideAvailable') is not False):
         raise ValueError('计划结构无效')
     request = {'schema': SCHEMA, 'replacements': [
         {'imageId': item['imageId'], 'png': item['png']} for item in plan['bindings']]}
-    actual = prepare(bank_path, mod_root, request)
+    actual = prepare(bank_path, mod_root, request, exe_hash)
     if actual != plan:
         raise ValueError('计划已失效：资源文件、原生库或计划内容发生变化')
     return actual
@@ -155,11 +155,10 @@ def main():
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
-        if file_hash(args.game_directory / 'Astral Ascent.exe') != bank.PROFILE_SHA:
-            raise ValueError('不支持此 EXE 指纹')
+        exe_hash=bank.validate_exe(args.game_directory / 'Astral Ascent.exe')
         document = json.loads(args.input.read_text(encoding='utf-8-sig'))
         operation = prepare if args.action == 'prepare' else verify
-        result = operation(args.game_directory / 'Assets.dat', args.mod_directory, document)
+        result = operation(args.game_directory / 'Assets.dat', args.mod_directory, document, exe_hash)
         text = json.dumps(result, ensure_ascii=False, indent=2)
         if args.output:
             destination = args.output.resolve()

@@ -2,7 +2,8 @@
 #include <cstring>
 #include <cmath>
 #include "game_state.h"
-#include "game_profile.h"
+#include "game_layout.h"
+#include "hook.h"
 #include "game_commands.h"
 #include "game_equipment.h"
 #include "game_combat.h"
@@ -18,10 +19,8 @@ AAModGameState cache = {};
 AAModStateEvent events[128] = {};
 uint64_t newest_event;
 unsigned char* base;
-void* table[5];
-void* original_table;
-void (*original_post)(void*);
-HANDLE worker;
+void* update_target;
+bool (*original_update)(void*);
 volatile LONG stopping;
 uint64_t sequence, epoch;
 int previous_scene = -1;
@@ -58,13 +57,12 @@ void status(uint32_t value) {
     next.status = value; next.scene_index = -1;
     publish(next);
 }
-// All foreign object reads are restricted to the exact executable profile and
-// the engine post-event update boundary. No pointers survive this function.
+// 原生字段由构造器绑定解析；外部对象读写只在完整更新后的游戏线程执行。
 bool sample(unsigned char* frame, AAModGameState* out) {
     __try {
         out->scene_index = *(int32_t*)(frame + 0x28);
         auto data = *(unsigned char**)(frame + 0x30);
-        if (!data || out->scene_index < 0 || out->scene_index >= 293) return false;
+        if (!data || out->scene_index < 0 || out->scene_index >= 1024) return false;
         const unsigned char* name = data + 8;
         uint64_t length = name[0] >> 1;
         const char* text = (const char*)name + 1;
@@ -82,7 +80,7 @@ bool sample(unsigned char* frame, AAModGameState* out) {
             while (object != sentinel) {
                 if (!object || ++visited > 20000) return false;
                 auto metadata = *(void**)(object + 8);
-                int player = metadata == base + 0xc407b80 ? 0 : metadata == base + 0xc414200 ? 1 : -1;
+                int player = native_player_index(metadata);
                 if (player >= 0) {
                     if (out->players[player].present) return false;
                     auto& p = out->players[player];
@@ -91,8 +89,8 @@ bool sample(unsigned char* frame, AAModGameState* out) {
                     p.present = 1; p.valid_fields = AAMOD_PLAYER_POSITION;
                     // Native gameProgress bindings, independently checked with
                     // distinct isolated-save values for both players.
-                    double health = *(double*)(frame + 0x1c4ff0 + player * 16);
-                    double maximum = *(double*)(frame + 0x1c4ff8 + player * 16);
+                    double health = *(double*)(frame + game_layout.health[player]);
+                    double maximum = *(double*)(frame + game_layout.maximum[player]);
                     if (!std::isfinite(health) || !std::isfinite(maximum) || maximum < 0) return false;
                     if (maximum > 0) {
                         p.health = health; p.max_health = maximum;
@@ -120,14 +118,13 @@ bool resample_after_equipment(void* frame,AAModGameState* current) {
 }
 bool write_health(void* frame, unsigned player, double value) {
     __try {
-        auto health = (double*)((unsigned char*)frame + 0x1c4ff0 + player * 16);
+        auto health = (double*)((unsigned char*)frame + game_layout.health[player]);
         *health = value; return *health == value;
     } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
         return false;
     }
 }
 void post(void* frame) {
-    original_post(frame);
     if (InterlockedCompareExchange(&stopping, 0, 0)) return;
     AAModGameState next = {};
     next.size = sizeof(next); next.version = AAMOD_STATE_VERSION;
@@ -154,54 +151,40 @@ void post(void* frame) {
     game_equipment_sample(base,next);
     publish(next);
 }
-DWORD WINAPI attach(void*) {
-    auto slot = (void**)(base + 0xa12acc8);
-    for (unsigned i = 0; i < 1000 && !InterlockedCompareExchange(&stopping, 0, 0); ++i) {
-        void* current = InterlockedCompareExchangePointer(slot, nullptr, nullptr);
-        if (current == base + 0x5a1bb60) {
-            memcpy(table, current, sizeof(table)); original_table = current;
-            original_post = (void(*)(void*))table[1]; table[1] = (void*)post;
-            if (InterlockedCompareExchangePointer(slot, table, current) == current) {
-                AAMOD_INFO("game state: attached native post-update boundary"); return 0;
-            }
-        }
-        Sleep(10);
-    }
-    if (!InterlockedCompareExchange(&stopping, 0, 0)) {
-        game_commands_stop();
-        equipment_stop();
-        status(AAMOD_STATE_FAULT); AAMOD_ERROR("game state: native frame constructor not observed or vtable already replaced");
-    }
-    return 1;
+// Frame::update 的原生结果是 AL 中的 bool，不能声明为 void/int。
+bool update(void* frame) {
+    bool result=original_update(frame);
+    post(frame);
+    return result;
 }
 }
 void game_state_initialize() {
-    AAModGameInfo identity = {}; game_profile_query(&identity, sizeof(identity));
     status(AAMOD_STATE_UNSUPPORTED);
-    if (identity.identity_status != AAMOD_GAME_IDENTITY_MATCH) return;
-    // Preview commands remain opt-in until their real gameplay validation.
-    char experimental[8] = {};
-    if (GetEnvironmentVariableA("AAMOD_EXPERIMENTAL_COMMANDS", experimental, sizeof(experimental)) == 1 && experimental[0] == '1') {
-        game_commands_start();
-        if(content_catalog_available())equipment_start();
-    }
-    base = (unsigned char*)GetModuleHandleW(nullptr);
-    InterlockedExchange(&stopping, 0); sequence = epoch = 0; previous_scene = -1; previous_loop = 0; update_thread = 0;
+    if(!game_layout.state)return;
+    base=(unsigned char*)GetModuleHandleW(nullptr);
+    InterlockedExchange(&stopping,0);sequence=epoch=0;previous_scene=-1;previous_loop=0;update_thread=0;
     status(AAMOD_STATE_WAITING);
-    worker = CreateThread(nullptr, 0, attach, nullptr, 0, nullptr);
-    if (!worker) { game_commands_stop(); equipment_stop(); status(AAMOD_STATE_FAULT); AAMOD_ERROR("game state: attachment worker creation failed"); }
+    update_target=base+game_layout.frame_update;
+    if(!hook::install_near(update_target,(void*)update,(void**)&original_update)) {
+        update_target=nullptr;status(AAMOD_STATE_FAULT);
+        AAMOD_ERROR("game state: resolved update hook rejected");return;
+    }
+    char experimental[8]={};
+    if(GetEnvironmentVariableA("AAMOD_EXPERIMENTAL_COMMANDS",experimental,sizeof(experimental))==1&&experimental[0]=='1') {
+        game_commands_start();
+        if(game_layout.equipment&&content_catalog_available())equipment_start();
+    }
+    AAMOD_INFO("game state: resolved native update boundary attached");
 }
 void game_state_shutdown() {
-    game_commands_stop();
-    equipment_stop();
-    InterlockedExchange(&stopping, 1);
-    if (worker) { WaitForSingleObject(worker, INFINITE); CloseHandle(worker); worker = nullptr; }
-    if (base && original_table) {
-        if (InterlockedCompareExchangePointer((void**)(base + 0xa12acc8), original_table, table) != table)
-            AAMOD_WARN("game state: frame vtable changed externally; not overwritten");
+    game_commands_stop();equipment_stop();InterlockedExchange(&stopping,1);
+    if(update_target) {
+        if(hook::remove(update_target))update_target=nullptr;
+        else AAMOD_ERROR("game state: update hook removal failed; core and trampoline retained");
     }
     status(AAMOD_STATE_STOPPED);
 }
+
 uint32_t game_state_query(AAModGameState* output, uint32_t size) {
     if (!output || size < sizeof(*output)) return AAMOD_ERR_ARGUMENT;
     AcquireSRWLockShared(&lock); memcpy(output, &cache, sizeof(cache)); ReleaseSRWLockShared(&lock);

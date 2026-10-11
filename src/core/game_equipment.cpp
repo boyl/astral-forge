@@ -1,4 +1,6 @@
+#include "game_scene.h"
 #include "game_equipment.h"
+#include "game_layout.h"
 #include <windows.h>
 #include <cstring>
 #include <cmath>
@@ -10,8 +12,9 @@ AAModEquipment cache={};
 // at +16 and the tagged numerical value at +0x50. Never expose nodes.
 bool read_slots(unsigned char* base,AAModEquipment* result,double** slots=nullptr,void** gambits=nullptr) {
     __try {
-        if(*(uint32_t*)(base+0xc0dfa20)<2)return true;
-        auto dictionary=*(unsigned char**)(base+0xc0d5cb0);
+        if(!game_layout.equipment)return false;
+        if(*(uint32_t*)(base+game_layout.player_count)<2)return true;
+        auto dictionary=*(unsigned char**)(base+game_layout.equipment_object);
         if(!dictionary)return false;
         auto head=*(unsigned char**)(dictionary+0x240);
         uint64_t count=*(uint64_t*)(dictionary+0x248);
@@ -51,7 +54,7 @@ bool game_equipment_fields(unsigned char* base,double** slots,void** gambits) {
 void game_equipment_status(uint32_t status){AAModEquipment value={};value.size=sizeof(value);value.status=status;publish(value);}
 void game_equipment_sample(unsigned char* base,const AAModGameState& state) {
     AAModEquipment value={};value.size=sizeof(value);value.status=state.status;value.sequence=state.sequence;value.scene_epoch=state.scene_epoch;
-    if(state.status==AAMOD_STATE_READY && state.scene_index==268 && state.players[0].present && !state.players[1].present) {
+    if(state.status==AAMOD_STATE_READY && gameplay_scene(state) && state.players[0].present && !state.players[1].present) {
         if(!read_slots(base,&value)){value={};value.size=sizeof(value);value.status=AAMOD_STATE_FAULT;value.sequence=state.sequence;value.scene_epoch=state.scene_epoch;}
     }
     publish(value);

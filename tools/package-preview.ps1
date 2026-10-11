@@ -53,6 +53,7 @@ $runtime+=@{Name='out/build.json';Path=(Join-Path $repoRoot 'out/build.json')}
 $runtime+=@($rootFiles|Where-Object {$_ -in 'README.md','LICENSE','THIRD_PARTY_NOTICES.md','CHANGELOG.md','SUPPORT.md','install.ps1'}|ForEach-Object {@{Name=$_;Path=(Join-Path $repoRoot $_)}})
 $runtime+=@(Source-Items @('include','docs','schemas'))
 $runtime+=@{Name='licenses/nlohmann-json/LICENSE.MIT';Path=(Join-Path $repoRoot 'src/vendor/nlohmann/LICENSE.MIT')}
+$runtime+=@{Name='licenses/bd_compatibility/LICENSE.MIT';Path=(Join-Path $repoRoot 'src/vendor/bd_compatibility/LICENSE.MIT')}
 foreach($tool in @('launch-game.ps1','build-mod.ps1','test-mod.ps1','diagnose.ps1','audit-preview.py','create-image-fixture.py','image-bank-info.py','resource-plan.py')){
     $runtime+=@{Name="tools/$tool";Path=(Join-Path $repoRoot "tools/$tool")}
 }

@@ -20,7 +20,7 @@ int wmain(int argc,wchar_t** argv) {
     std::string name(189,'a');name+="中文";char short_name[192];name_copy(short_name,name);assert(strlen(short_name)==189);
     assert(label(Json::parse("{\"x\":\"[font=main]\\u706b\\u7403[/font]\"}"),"x")=="火球");
     if(argc==2) {
-        rows.clear();identity.identity_status=AAMOD_GAME_IDENTITY_MATCH;
+        rows.clear();identity.identity_status=AAMOD_GAME_UNKNOWN;
         content_catalog_initialize(argv[1]);assert(content_catalog_available());
         assert(content_catalog_contains(1,144)&&content_catalog_contains(1,294)&&content_catalog_contains(2,30)&&!content_catalog_contains(2,86)&&!content_catalog_contains(2,160));
         for(auto kind:{1u,2u}) {

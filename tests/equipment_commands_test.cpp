@@ -1,3 +1,4 @@
+#include <cstring>
 #include "../src/core/equipment_commands.cpp"
 #undef NDEBUG
 #include <cassert>
@@ -19,7 +20,7 @@ static void apply(void*,const AAModEquipmentCommand& request,AAModEquipmentResul
 static void sync(void*,const AAModEquipmentCommand&,AAModEquipmentResult& result){++sync_calls;result.checkpoint_status=AAMOD_CHECKPOINT_SAVE_DISPATCHED;}
 int main() {
     using namespace aamod;
-    AAModGameState state={};state.status=2;state.scene_index=268;state.scene_epoch=5;state.players[0].present=1;state.players[0].health=10;state.update_thread_id=17;
+    AAModGameState state={};state.status=2;state.scene_index=268;std::strcpy(state.scene_name,"layout_game");state.scene_epoch=5;state.players[0].present=1;state.players[0].health=10;state.update_thread_id=17;
     AAModEquipmentCommand request={sizeof(request),1,5,0,8,7,1};uint64_t id=999;AAModEquipmentResult result={};
     assert(equipment_submit(1,&request,sizeof(request),&id)==AAMOD_ERR_COMMAND_UNAVAILABLE&&id==999);equipment_start();
     assert(equipment_submit(1,&request,sizeof(request),&id)==0);

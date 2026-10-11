@@ -30,6 +30,7 @@
 #include "anchor.h"
 #include "present.h"
 #include "game_profile.h"
+#include "game_layout.h"
 #include "game_state.h"
 #include "game_commands.h"
 #include "resources.h"
@@ -156,7 +157,7 @@ void  api_free(void* p) { free(p); }
 
 uint64_t api_capabilities(void)
 {
-    return (native_events_available() ? AAMOD_CAP_GAMEPLAY_EVENTS : 0) | AAMOD_CAP_HOOKS | AAMOD_CAP_ANCHORS | AAMOD_CAP_FRAMES | AAMOD_CAP_GAME_INFO | AAMOD_CAP_GAME_STATE | AAMOD_CAP_STATE_EVENTS | AAMOD_CAP_PNG_RESOURCES | AAMOD_CAP_PLUGIN_DATA | (content_catalog_available() ? AAMOD_CAP_CONTENT_CATALOG : 0) | (native_images_available() ? AAMOD_CAP_NATIVE_IMAGES : 0) | (game_commands_available() ? AAMOD_CAP_COMMANDS : 0) | (game_commands_available() && content_catalog_available() ? AAMOD_CAP_EQUIPMENT_COMMANDS : 0);
+    return (native_events_available() ? AAMOD_CAP_GAMEPLAY_EVENTS : 0) | AAMOD_CAP_HOOKS | AAMOD_CAP_ANCHORS | AAMOD_CAP_FRAMES | AAMOD_CAP_GAME_INFO | AAMOD_CAP_GAME_STATE | AAMOD_CAP_STATE_EVENTS | AAMOD_CAP_PNG_RESOURCES | AAMOD_CAP_PLUGIN_DATA | (content_catalog_available() ? AAMOD_CAP_CONTENT_CATALOG : 0) | (native_images_available() ? AAMOD_CAP_NATIVE_IMAGES : 0) | (game_commands_available() ? AAMOD_CAP_COMMANDS : 0) | (game_commands_available() && game_layout.equipment && content_catalog_available() ? AAMOD_CAP_EQUIPMENT_COMMANDS : 0);
 }
 
 uint32_t api_hook_install(void* target, void* detour, void** trampoline)
@@ -376,6 +377,7 @@ DWORD WINAPI bootstrap_thread(LPVOID)
     AAMOD_INFO("log file : %s", log_path());
     log_game_version();
     game_profile_initialize();
+    game_layout_initialize();
     content_catalog_initialize(g_game_dir);
     native_images_initialize();
     game_state_initialize();

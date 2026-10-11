@@ -1,6 +1,7 @@
 #include "aamod/aamod.h"
 #include <windows.h>
 #include <vector>
+#include <cstring>
 static const AAModAPI* api;
 static HANDLE stopped,worker;
 static int target_id,repeat_count,restore_delay;
@@ -15,7 +16,7 @@ static DWORD WINAPI run(void*) {
             if(elapsed%3)continue;
             for(uint32_t id=0;id<71870;++id){AAModNativeImageInfo info={};
                 if(api->native_image_info(id,&info,sizeof(info)))continue;
-                if(baseline&&state.scene_index==282&&info.upload_visits>prior[id])
+                if(baseline&&!std::strcmp(state.scene_name,"layout_mainMenu")&&info.upload_visits>prior[id])
                     AAMOD_LOGI(api,"native_image_sample: menu upload-visit id=%u logical=%ux%u format=%u delta=%llu",id,info.width,info.height,info.format,info.upload_visits-prior[id]);
                 prior[id]=info.upload_visits;
             }
