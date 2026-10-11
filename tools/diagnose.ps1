@@ -6,7 +6,6 @@ $ErrorActionPreference='Stop'
 if(Test-Path -LiteralPath $OutputPath){throw '诊断输出已存在，未覆盖。'}
 $game=(Resolve-Path -LiteralPath $GameDir).Path
 $exe=Join-Path $game 'Astral Ascent.exe'
-$expected='CA376D2B741F65C75C416317517D24C316DD8A32A4EAE6559030797B3B9AA88B'
 $identity=if(Test-Path -LiteralPath $exe){(Get-FileHash -LiteralPath $exe).Hash}else{$null}
 $records=@()
 $installed=Join-Path $game 'aamod/install.json'
@@ -28,6 +27,6 @@ $runtime=@('vcruntime140.dll','msvcp140.dll')|ForEach-Object {
     $path=Join-Path $env:SystemRoot "System32/$_"
     @{name=$_;present=(Test-Path -LiteralPath $path);version=if(Test-Path -LiteralPath $path){(Get-Item -LiteralPath $path).VersionInfo.FileVersion}else{$null}}
 }
-$result=[ordered]@{format=1;frameworkVersion=$manifest.aamod;frameworkVersionSource='install.json，不证明实际加载';shim=$manifest.shim;gameSha256=$identity;gameSupported=($identity -eq $expected);osVersion=[Environment]::OSVersion.Version.ToString();processArchitecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString();powerShell=$PSVersionTable.PSVersion.ToString();gameProcessCount=@(Get-Process -Name 'Astral Ascent' -ErrorAction SilentlyContinue).Count;visualCppRuntime=@($runtime);files=$records;plugins=$plugins;limits='只核对标准安装清单；自定义 AAMOD_DATA_DIR 与加载成功须另行核对。'}
+$result=[ordered]@{format=1;frameworkVersion=$manifest.aamod;frameworkVersionSource='install.json，不证明实际加载';shim=$manifest.shim;gameSha256=$identity;gameSupported=$null;gameSupportStatus='not-evaluated';compatibilityGuidance='游戏哈希仅用于诊断；使用 maintain-update.py scan 检查原生契约，再进行隔离实机验收。';osVersion=[Environment]::OSVersion.Version.ToString();processArchitecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString();powerShell=$PSVersionTable.PSVersion.ToString();gameProcessCount=@(Get-Process -Name 'Astral Ascent' -ErrorAction SilentlyContinue).Count;visualCppRuntime=@($runtime);files=$records;plugins=$plugins;limits='只核对标准安装清单；自定义 AAMOD_DATA_DIR 与加载成功须另行核对。'}
 $result|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $OutputPath -Encoding utf8NoBOM
 Write-Output "已生成只读诊断：$OutputPath。分享前仍请检查插件名称等内容。"

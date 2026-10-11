@@ -15,6 +15,7 @@ try {
     & (Join-Path $repo 'tools/diagnose.ps1') -GameDir $root -OutputPath (Join-Path $root 'first.json')|Out-Null
     $text=Get-Content (Join-Path $root 'first.json') -Raw;$result=$text|ConvertFrom-Json
     if($result.gameSupported -or -not $result.files[0].matchesManifest -or $result.files[1].present -or $result.plugins[0].enabled){throw '正常、未知宿主、缺失文件或禁用插件诊断不符'}
+    if($null -ne $result.gameSupported -or $result.gameSupportStatus -ne 'not-evaluated'){throw '诊断不能以整文件哈希判定游戏兼容性'}
     if($text.Contains($root) -or $text.Contains($env:USERPROFILE) -or $text.Contains('game_dir')){throw '诊断泄露完整路径'}
     Set-Content (Join-Path $root 'aamod_core.dll') -Value 'drift'
     & (Join-Path $repo 'tools/diagnose.ps1') -GameDir $root -OutputPath (Join-Path $root 'second.json')|Out-Null

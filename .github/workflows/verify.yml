@@ -22,6 +22,7 @@ jobs:
           ./tests/run-contracts.ps1
           ./tests/run-installer.ps1
           ./tests/run-diagnostics.ps1
+          ./tests/run-maintenance.ps1 -PythonPath (Get-Command python).Source
           foreach($name in @('hello','template','diagnostics','state_watch','event_watch','heal_once','image_sample','native_image_sample','data_sample','equipment_watch','content_smoke','build_selector','native_event_watch','event_responder')) {
             ./tools/build-mod.ps1 -ModDirectory "./mods/$name"
           }
