@@ -1,3 +1,5 @@
+[![Downloads](https://img.shields.io/github/downloads/boyl/astral-forge/total?label=Downloads&color=blue)](https://github.com/boyl/astral-forge/releases) [![Stars](https://img.shields.io/github/stars/boyl/astral-forge?label=Stars)](https://github.com/boyl/astral-forge/stargazers) [![Latest Release](https://img.shields.io/github/v/release/boyl/astral-forge?label=Release)](https://github.com/boyl/astral-forge/releases/latest) [![License](https://img.shields.io/github/license/boyl/astral-forge?label=License)](https://github.com/boyl/astral-forge/blob/HEAD/LICENSE)
+
 # Astral Forge · 星界战士 Mod 开发基座
 
 基于原 aamod 的 MIT 源码和历史继续维护，为《星界战士》（Astral Ascent）的 C/C++ Mod 开发者提供加载器、版本化 C ABI 和游戏适配接口。
